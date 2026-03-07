@@ -19,7 +19,7 @@ export class Executor extends ServiceMap.Service<
     execute<Tools extends Record<string, Tool.Any>>(options: {
       readonly tools: Toolkit.WithHandler<Tools>
       readonly script: string
-    }): Stream.Stream<string>
+    }): Stream.Stream<string, never, Tool.HandlerServices<Tools[keyof Tools]>>
   }
 >()("clanka/Executor") {
   static readonly layer = Layer.effect(

@@ -3,6 +3,8 @@ import {
   Deferred,
   Effect,
   FileSystem,
+  Layer,
+  Path,
   pipe,
   Schema,
   ServiceMap,
@@ -12,6 +14,17 @@ import { Tool, Toolkit } from "effect/unstable/ai"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as Glob from "glob"
 import * as Rg from "@vscode/ripgrep"
+import { NodeServices } from "@effect/platform-node"
+
+export class CurrentDirectory extends ServiceMap.Service<
+  CurrentDirectory,
+  string
+>()("clanka/AgentTools/CurrentDirectory") {}
+
+export class TaskCompleteDeferred extends ServiceMap.Service<
+  TaskCompleteDeferred,
+  Deferred.Deferred<string>
+>()("clanka/AgentTools/TaskCompleteDeferred") {}
 
 export const AgentTools = Toolkit.make(
   Tool.make("readFile", {
@@ -22,6 +35,7 @@ export const AgentTools = Toolkit.make(
       endLine: Schema.optional(Schema.Number),
     }),
     success: Schema.String,
+    dependencies: [CurrentDirectory],
   }),
   Tool.make("rg", {
     description: "Search for a pattern in files using ripgrep.",
@@ -36,6 +50,7 @@ export const AgentTools = Toolkit.make(
       }),
     }),
     success: Schema.String,
+    dependencies: [CurrentDirectory],
   }),
   Tool.make("glob", {
     description: "Find files matching a glob pattern.",
@@ -43,6 +58,7 @@ export const AgentTools = Toolkit.make(
       identifier: "pattern",
     }),
     success: Schema.String,
+    dependencies: [CurrentDirectory],
   }),
   Tool.make("bash", {
     description: "Run a bash command and return the output",
@@ -50,6 +66,7 @@ export const AgentTools = Toolkit.make(
       identifier: "command",
     }),
     success: Schema.String,
+    dependencies: [CurrentDirectory],
   }),
   Tool.make("taskComplete", {
     description:
@@ -57,30 +74,21 @@ export const AgentTools = Toolkit.make(
     parameters: Schema.String.annotate({
       identifier: "message",
     }),
+    dependencies: [TaskCompleteDeferred],
   }),
 )
 
-export class CurrentDirectory extends ServiceMap.Service<
-  CurrentDirectory,
-  string
->()("clanka/AgentTools/CurrentDirectory") {}
-
-export class TaskCompleteDeferred extends ServiceMap.Service<
-  TaskCompleteDeferred,
-  Deferred.Deferred<string>
->()("clanka/AgentTools/TaskCompleteDeferred") {}
-
 export const AgentToolHandlers = AgentTools.toLayer(
   Effect.gen(function* () {
-    const deferred = yield* TaskCompleteDeferred
-    const cwd = yield* CurrentDirectory
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const fs = yield* FileSystem.FileSystem
+    const pathService = yield* Path.Path
 
     return AgentTools.of({
-      readFile: Effect.fn("AgentTools.readFile")((options) => {
+      readFile: Effect.fn("AgentTools.readFile")(function* (options) {
+        const cwd = yield* CurrentDirectory
         let stream = pipe(
-          fs.stream(options.path),
+          fs.stream(pathService.join(cwd, options.path)),
           Stream.decodeText,
           Stream.splitLines,
         )
@@ -93,12 +101,13 @@ export const AgentToolHandlers = AgentTools.toLayer(
             options.endLine - (options.startLine ?? 1) + 1,
           )
         }
-        return Stream.runCollect(stream).pipe(
+        return yield* Stream.runCollect(stream).pipe(
           Effect.map(Array.join("\n")),
           Effect.orDie,
         )
       }),
-      rg: Effect.fn("AgentTools.rg")((options) => {
+      rg: Effect.fn("AgentTools.rg")(function* (options) {
+        const cwd = yield* CurrentDirectory
         const args = ["--max-filesize", "1M", "--line-number"]
         if (options.glob) {
           args.push("--glob", options.glob)
@@ -119,26 +128,29 @@ export const AgentToolHandlers = AgentTools.toLayer(
         if (options.maxLines) {
           stream = Stream.take(stream, options.maxLines)
         }
-        return Stream.runCollect(stream).pipe(
+        return yield* Stream.runCollect(stream).pipe(
           Effect.map(Array.join("\n")),
           Effect.orDie,
         )
       }),
-      glob: Effect.fn("AgentTools.glob")((pattern) =>
-        Effect.promise(() => Glob.glob(pattern, { cwd })).pipe(
+      glob: Effect.fn("AgentTools.glob")(function* (pattern) {
+        const cwd = yield* CurrentDirectory
+        return yield* Effect.promise(() => Glob.glob(pattern, { cwd })).pipe(
           Effect.map(Array.join("\n")),
-        ),
-      ),
+        )
+      }),
       bash: Effect.fn("AgentTools.bash")(function* (command) {
+        const cwd = yield* CurrentDirectory
         const cmd = ChildProcess.make("bash", ["-c", command], {
           cwd,
           stdin: "ignore",
         })
         return yield* spawner.string(cmd).pipe(Effect.orDie)
       }),
-      taskComplete: Effect.fn("AgentTools.taskComplete")((message) =>
-        Deferred.succeed(deferred, message),
-      ),
+      taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
+        const deferred = yield* TaskCompleteDeferred
+        yield* Deferred.succeed(deferred, message)
+      }),
     })
   }),
-)
+).pipe(Layer.provide(NodeServices.layer))
