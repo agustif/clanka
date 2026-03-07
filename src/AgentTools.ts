@@ -44,8 +44,16 @@ export const AgentTools = Toolkit.make(
     }),
     success: Schema.String,
   }),
+  Tool.make("bash", {
+    description: "Run a bash command and return the output",
+    parameters: Schema.String.annotate({
+      identifier: "command",
+    }),
+    success: Schema.String,
+  }),
   Tool.make("taskComplete", {
-    description: "Call this when you have fully completed the user's task",
+    description:
+      "Call this when you have fully completed the user's task, completely ending the session",
     parameters: Schema.String.annotate({
       identifier: "message",
     }),
@@ -91,15 +99,21 @@ export const AgentToolHandlers = AgentTools.toLayer(
         )
       }),
       rg: Effect.fn("AgentTools.rg")((options) => {
-        const args = ["--max-filesize", "700K", "--line-number"]
+        const args = ["--max-filesize", "1M", "--line-number"]
         if (options.glob) {
           args.push("--glob", options.glob)
         }
         args.push(options.pattern)
-        let stream = spawner.streamLines(
-          ChildProcess.make(Rg.rgPath, args, {
-            cwd,
-            stdin: "ignore",
+        let stream = pipe(
+          spawner.streamLines(
+            ChildProcess.make(Rg.rgPath, args, {
+              cwd,
+              stdin: "ignore",
+            }),
+          ),
+          Stream.map((line) => {
+            if (line.length <= 500) return line
+            return line.slice(0, 500) + "...[truncated]"
           }),
         )
         if (options.maxLines) {
@@ -115,6 +129,13 @@ export const AgentToolHandlers = AgentTools.toLayer(
           Effect.map(Array.join("\n")),
         ),
       ),
+      bash: Effect.fn("AgentTools.bash")(function* (command) {
+        const cmd = ChildProcess.make("bash", ["-c", command], {
+          cwd,
+          stdin: "ignore",
+        })
+        return yield* spawner.string(cmd).pipe(Effect.orDie)
+      }),
       taskComplete: Effect.fn("AgentTools.taskComplete")((message) =>
         Deferred.succeed(deferred, message),
       ),
