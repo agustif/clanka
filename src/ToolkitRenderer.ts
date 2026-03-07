@@ -1,0 +1,32 @@
+import { Array, Layer, SchemaAST, ServiceMap } from "effect"
+import { Tool, Toolkit } from "effect/unstable/ai"
+import * as TypeBuilder from "./TypeBuilder.ts"
+import { memoize } from "effect/Function"
+
+export class ToolkitRenderer extends ServiceMap.Service<
+  ToolkitRenderer,
+  {
+    render<Tools extends Record<string, Tool.Any>>(
+      tools: Toolkit.Toolkit<Tools>,
+    ): string
+  }
+>()("clanka/ToolkitRenderer") {
+  static readonly layer = Layer.succeed(ToolkitRenderer, {
+    render: memoize(
+      <Tools extends Record<string, Tool.Any>>(
+        tools: Toolkit.Toolkit<Tools>,
+      ) => {
+        const output = Array.empty<string>()
+        for (const [name, tool] of Object.entries(tools.tools)) {
+          const paramName =
+            SchemaAST.resolveIdentifier(tool.parametersSchema.ast) ?? "options"
+          output.push(
+            `/** ${tool.description} */
+declare function ${name}(${paramName}: ${TypeBuilder.render(tool.parametersSchema)}): Promise<${TypeBuilder.render(tool.successSchema)}>`,
+          )
+        }
+        return output.join("\n\n")
+      },
+    ),
+  })
+}
