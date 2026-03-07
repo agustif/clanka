@@ -45,6 +45,7 @@ ${options.script}
           const sandbox: ScriptSandbox = {
             main: defaultMain,
             console,
+            process: undefined,
           }
 
           for (const [name, tool] of Object.entries(options.tools.tools)) {
@@ -59,9 +60,12 @@ ${options.script}
             }
           }
 
-          script.runInNewContext(sandbox, {
-            timeout: 1000,
-          })
+          // @effect-diagnostics-next-line tryCatchInEffectGen:off
+          try {
+            script.runInNewContext(sandbox, {
+              timeout: 1000,
+            })
+          } catch {}
           yield* Effect.promise(sandbox.main)
         }).pipe(
           Effect.timeout("3 minutes"),

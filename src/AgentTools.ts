@@ -1,6 +1,5 @@
 import {
   Array,
-  Deferred,
   Effect,
   FileSystem,
   Layer,
@@ -22,20 +21,24 @@ export class CurrentDirectory extends ServiceMap.Service<
   string
 >()("clanka/AgentTools/CurrentDirectory") {}
 
-export class TaskCompleteDeferred extends ServiceMap.Service<
-  TaskCompleteDeferred,
-  Deferred.Deferred<string>
->()("clanka/AgentTools/TaskCompleteDeferred") {}
-
 export const AgentTools = Toolkit.make(
   Tool.make("readFile", {
-    description: "Read a file and optionally filter the lines to return.",
+    description:
+      "Read a file and optionally filter the lines to return. Returns null if the file doesn't exist.",
     parameters: Schema.Struct({
       path: Schema.String,
       startLine: Schema.optional(Schema.Number),
       endLine: Schema.optional(Schema.Number),
     }),
-    success: Schema.String,
+    success: Schema.NullOr(Schema.String),
+    dependencies: [CurrentDirectory],
+  }),
+  Tool.make("readdir", {
+    description: "List the contents of a directory",
+    parameters: Schema.String.annotate({
+      identifier: "path",
+    }),
+    success: Schema.Array(Schema.String),
     dependencies: [CurrentDirectory],
   }),
   Tool.make("rg", {
@@ -58,7 +61,7 @@ export const AgentTools = Toolkit.make(
     parameters: Schema.String.annotate({
       identifier: "pattern",
     }),
-    success: Schema.String,
+    success: Schema.Array(Schema.String),
     dependencies: [CurrentDirectory],
   }),
   Tool.make("bash", {
@@ -93,14 +96,6 @@ export const AgentTools = Toolkit.make(
       identifier: "ms",
     }),
   }),
-  Tool.make("taskComplete", {
-    description:
-      "Call this when you have fully completed the user's task, completely ending the session",
-    parameters: Schema.String.annotate({
-      identifier: "message",
-    }),
-    dependencies: [TaskCompleteDeferred],
-  }),
 )
 
 export const AgentToolHandlers = AgentTools.toLayer(
@@ -131,6 +126,9 @@ export const AgentToolHandlers = AgentTools.toLayer(
         }
         return yield* Stream.runCollect(stream).pipe(
           Effect.map(Array.join("\n")),
+          Effect.catchReason("PlatformError", "NotFound", () =>
+            Effect.succeed(null),
+          ),
           Effect.orDie,
         )
       }),
@@ -141,6 +139,15 @@ export const AgentToolHandlers = AgentTools.toLayer(
         const cwd = yield* CurrentDirectory
         yield* fs.remove(pathService.resolve(cwd, path))
       }, Effect.orDie),
+      readdir: Effect.fn("AgentTools.readdir")(function* (path) {
+        yield* Effect.logInfo(`Calling "readdir"`).pipe(
+          Effect.annotateLogs({ path }),
+        )
+        const cwd = yield* CurrentDirectory
+        return yield* fs
+          .readDirectory(pathService.resolve(cwd, path))
+          .pipe(Effect.orDie)
+      }),
       rg: Effect.fn("AgentTools.rg")(function* (options) {
         yield* Effect.logInfo(`Calling "rg"`).pipe(Effect.annotateLogs(options))
         const cwd = yield* CurrentDirectory
@@ -172,9 +179,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
           Effect.annotateLogs({ pattern }),
         )
         const cwd = yield* CurrentDirectory
-        return yield* Effect.promise(() => Glob.glob(pattern, { cwd })).pipe(
-          Effect.map(Array.join("\n")),
-        )
+        return yield* Effect.promise(() => Glob.glob(pattern, { cwd }))
       }),
       bash: Effect.fn("AgentTools.bash")(function* (command) {
         yield* Effect.logInfo(`Calling "bash"`).pipe(
@@ -203,10 +208,6 @@ export const AgentToolHandlers = AgentTools.toLayer(
         const path = pathService.relative(cwd, file).replaceAll("\\", "/")
         return `M ${path}`
       }, Effect.orDie),
-      taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
-        const deferred = yield* TaskCompleteDeferred
-        yield* Deferred.succeed(deferred, message)
-      }),
     })
   }),
 ).pipe(Layer.provide(NodeServices.layer))
