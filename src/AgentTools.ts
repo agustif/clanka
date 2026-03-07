@@ -22,6 +22,18 @@ export class CurrentDirectory extends ServiceMap.Service<
 >()("clanka/AgentTools/CurrentDirectory") {}
 
 export const AgentTools = Toolkit.make(
+  Tool.make("applyPatch", {
+    description:
+      "Apply a patch to a single file. **Use this for updating files**.",
+    parameters: Schema.Struct({
+      path: Schema.String,
+      patchText: Schema.String.annotate({
+        documentation: "Raw @@ hunks or one wrapped update block.",
+      }),
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
+  }),
   Tool.make("readFile", {
     description:
       "Read a file and optionally filter the lines to return. Returns null if the file doesn't exist.",
@@ -76,17 +88,6 @@ export const AgentTools = Toolkit.make(
     description: "Run a bash command and return the output",
     parameters: Schema.String.annotate({
       identifier: "command",
-    }),
-    success: Schema.String,
-    dependencies: [CurrentDirectory],
-  }),
-  Tool.make("applyPatch", {
-    description: "Apply a patch to a single file.",
-    parameters: Schema.Struct({
-      path: Schema.String,
-      patchText: Schema.String.annotate({
-        documentation: "Raw @@ hunks or one wrapped update block.",
-      }),
     }),
     success: Schema.String,
     dependencies: [CurrentDirectory],
