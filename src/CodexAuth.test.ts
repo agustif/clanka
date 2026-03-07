@@ -238,10 +238,39 @@ describe("CodexAuth", () => {
     )
   })
 
-  it("returns none when decoded claims fail the schema", () => {
+  it("ignores malformed claim types instead of failing the parse", () => {
+    assert.deepStrictEqual(
+      Option.getOrUndefined(
+        parseJwtClaims(createTestJwt({ chatgpt_account_id: 123 })),
+      ),
+      {},
+    )
+  })
+
+  it("keeps valid account ids when other claim locations are malformed", () => {
     assert.strictEqual(
-      Option.isNone(parseJwtClaims(createTestJwt({ chatgpt_account_id: 123 }))),
-      true,
+      Option.getOrUndefined(
+        extractAccountIdFromToken(
+          createTestJwt({
+            chatgpt_account_id: "acc-root",
+            "https://api.openai.com/auth": "invalid",
+          }),
+        ),
+      ),
+      "acc-root",
+    )
+    assert.strictEqual(
+      Option.getOrUndefined(
+        extractAccountIdFromToken(
+          createTestJwt({
+            "https://api.openai.com/auth": {
+              chatgpt_account_id: "acc-nested",
+            },
+            organizations: [123],
+          }),
+        ),
+      ),
+      "acc-nested",
     )
   })
 
@@ -310,6 +339,17 @@ describe("CodexAuth", () => {
         }),
       ),
       "org-123",
+    )
+  })
+
+  it("treats empty organization ids as missing", () => {
+    assert.strictEqual(
+      Option.isNone(
+        extractAccountIdFromClaims({
+          organizations: [{ id: "" }],
+        }),
+      ),
+      true,
     )
   })
 
@@ -543,6 +583,29 @@ describe("CodexAuth", () => {
   )
 
   it.effect(
+    "exchanges tokens with malformed JWT claims without surfacing auth errors",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* makeClient(() =>
+          jsonResponse({
+            id_token: "invalid",
+            access_token: "also-invalid",
+            refresh_token: "refresh-token",
+            expires_in: 42,
+          }),
+        )
+
+        const token = yield* exchangeAuthorizationCode({
+          authorizationCode: "authorization-code",
+          codeVerifier: "code-verifier",
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client))
+
+        assert.strictEqual(token.refresh, "refresh-token")
+        assert.strictEqual(Option.isNone(token.accountId), true)
+      }),
+  )
+
+  it.effect(
     "refreshes tokens with urlencoded payloads and access token fallback",
     () =>
       Effect.gen(function* () {
@@ -605,6 +668,81 @@ describe("CodexAuth", () => {
           "from-access-token",
         )
       }),
+  )
+
+  it.effect(
+    "refreshes tokens with malformed JWT claims without surfacing auth errors",
+    () =>
+      Effect.gen(function* () {
+        const { client } = yield* makeClient(() =>
+          jsonResponse({
+            id_token: "invalid",
+            access_token: "also-invalid",
+            refresh_token: "next-refresh-token",
+            expires_in: 120,
+          }),
+        )
+
+        const token = yield* refreshToken("refresh-token").pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+        )
+
+        assert.strictEqual(token.refresh, "next-refresh-token")
+        assert.strictEqual(Option.isNone(token.accountId), true)
+      }),
+  )
+
+  it.effect(
+    "preserves the stored account id when refreshed tokens omit parseable claims",
+    () =>
+      Effect.gen(function* () {
+        const kvs = yield* KeyValueStore.KeyValueStore
+        const tokenStore = toTokenStore(kvs)
+        yield* Effect.orDie(
+          tokenStore.set(
+            STORE_TOKEN_KEY,
+            new TokenData({
+              access: "stale-access-token",
+              refresh: "stale-refresh-token",
+              expires: Date.now() - 60_000,
+              accountId: Option.some("persisted-account"),
+            }),
+          ),
+        )
+
+        const { attempts, client } = yield* makeClient(() =>
+          jsonResponse({
+            id_token: "invalid",
+            access_token: "also-invalid",
+            refresh_token: "next-refresh-token",
+            expires_in: 120,
+          }),
+        )
+
+        const auth = yield* CodexAuth.make.pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+        )
+
+        const token = yield* auth.get
+
+        assert.strictEqual(token.refresh, "next-refresh-token")
+        assert.strictEqual(
+          Option.getOrUndefined(token.accountId),
+          "persisted-account",
+        )
+        assert.strictEqual(yield* Ref.get(attempts), 1)
+
+        const stored = yield* Effect.orDie(tokenStore.get(STORE_TOKEN_KEY))
+        assert.strictEqual(Option.isSome(stored), true)
+        if (Option.isNone(stored)) {
+          return
+        }
+
+        assert.strictEqual(
+          Option.getOrUndefined(stored.value.accountId),
+          "persisted-account",
+        )
+      }).pipe(Effect.provide(KeyValueStore.layerMemory)),
   )
 
   it.effect("captures decode failures when refreshing tokens", () =>
