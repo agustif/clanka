@@ -131,6 +131,59 @@ describe("TypeBuilder", () => {
     )
   })
 
+  it("renders readonly arrays", () => {
+    expect(TypeBuilder.render(Schema.Array(Schema.String))).toBe(
+      "readonly string[]",
+    )
+  })
+
+  it("renders mutable arrays", () => {
+    expect(
+      TypeBuilder.render(Schema.mutable(Schema.Array(Schema.String))),
+    ).toBe("string[]")
+  })
+
+  it("renders readonly tuples", () => {
+    expect(
+      TypeBuilder.render(Schema.Tuple([Schema.String, Schema.Number])),
+    ).toBe(lines("readonly [", "    string,", "    number", "]"))
+  })
+
+  it("renders mutable tuples", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.mutable(Schema.Tuple([Schema.String, Schema.Number])),
+      ),
+    ).toBe(lines("[", "    string,", "    number", "]"))
+  })
+
+  it("renders optional tuple elements", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Tuple([Schema.String, Schema.optional(Schema.Number)]),
+      ),
+    ).toBe(lines("readonly [", "    string,", "    number?", "]"))
+  })
+
+  it("renders tuples with rest elements", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.TupleWithRest(Schema.Tuple([Schema.String]), [
+          Schema.Number,
+          Schema.Boolean,
+        ]),
+      ),
+    ).toBe(
+      lines(
+        "readonly [",
+        "    string,",
+        "    ...number[],",
+        "    boolean",
+        "]",
+      ),
+    )
+  })
+
   it("renders documented fields", () => {
     expect(
       TypeBuilder.render(
