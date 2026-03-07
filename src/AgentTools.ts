@@ -15,6 +15,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as Glob from "glob"
 import * as Rg from "@vscode/ripgrep"
 import { NodeServices } from "@effect/platform-node"
+import { patchContent } from "./ApplyPatch.ts"
 
 export class CurrentDirectory extends ServiceMap.Service<
   CurrentDirectory,
@@ -68,6 +69,18 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [CurrentDirectory],
   }),
+  Tool.make("applyPatch", {
+    description: "Apply a patch to a single file.",
+    parameters: Schema.Struct({
+      path: Schema.String,
+      patchText: Schema.String.annotate({
+        documentation:
+          "Use raw @@ hunks, or a full *** Begin Patch block with one *** Update File section.",
+      }),
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
+  }),
   Tool.make("taskComplete", {
     description:
       "Call this when you have fully completed the user's task, completely ending the session",
@@ -91,7 +104,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
         )
         const cwd = yield* CurrentDirectory
         let stream = pipe(
-          fs.stream(pathService.join(cwd, options.path)),
+          fs.stream(pathService.resolve(cwd, options.path)),
           Stream.decodeText,
           Stream.splitLines,
         )
@@ -155,6 +168,15 @@ export const AgentToolHandlers = AgentTools.toLayer(
         })
         return yield* spawner.string(cmd).pipe(Effect.orDie)
       }),
+      applyPatch: Effect.fn("AgentTools.applyPatch")(function* (options) {
+        const cwd = yield* CurrentDirectory
+        const file = pathService.resolve(cwd, options.path)
+        const input = yield* fs.readFileString(file)
+        const next = patchContent(file, input, options.patchText)
+        yield* fs.writeFileString(file, next)
+        const path = pathService.relative(cwd, file).replaceAll("\\", "/")
+        return `M ${path}`
+      }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
         const deferred = yield* TaskCompleteDeferred
         yield* Deferred.succeed(deferred, message)
