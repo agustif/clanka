@@ -78,13 +78,16 @@ export const parseJwtClaims = (token: string): Option.Option<JwtClaims> =>
 export const extractAccountIdFromClaims = (
   claims: JwtClaims,
 ): Option.Option<string> => {
-  if (claims.chatgpt_account_id !== undefined) {
+  if (
+    claims.chatgpt_account_id !== undefined &&
+    claims.chatgpt_account_id !== ""
+  ) {
     return Option.some(claims.chatgpt_account_id)
   }
 
   const nestedAccountId =
     claims["https://api.openai.com/auth"]?.chatgpt_account_id
-  if (nestedAccountId !== undefined) {
+  if (nestedAccountId !== undefined && nestedAccountId !== "") {
     return Option.some(nestedAccountId)
   }
 

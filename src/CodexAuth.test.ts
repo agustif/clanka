@@ -206,6 +206,43 @@ describe("CodexAuth", () => {
     )
   })
 
+  it("treats empty root and nested account ids as missing", () => {
+    assert.strictEqual(
+      Option.getOrUndefined(
+        extractAccountIdFromClaims({
+          chatgpt_account_id: "",
+          "https://api.openai.com/auth": {
+            chatgpt_account_id: "acc-nested",
+          },
+        }),
+      ),
+      "acc-nested",
+    )
+    assert.strictEqual(
+      Option.getOrUndefined(
+        extractAccountIdFromClaims({
+          chatgpt_account_id: "",
+          "https://api.openai.com/auth": {
+            chatgpt_account_id: "",
+          },
+          organizations: [{ id: "org-123" }],
+        }),
+      ),
+      "org-123",
+    )
+  })
+
+  it("returns none when no account id claim is present", () => {
+    assert.strictEqual(
+      Option.isNone(
+        extractAccountIdFromClaims({
+          organizations: [],
+        }),
+      ),
+      true,
+    )
+  })
+
   it("extracts account ids directly from JWTs", () => {
     assert.strictEqual(
       Option.getOrUndefined(
