@@ -381,4 +381,57 @@ describe("TypeBuilder", () => {
       ),
     )
   })
+
+  it("renders documented primitive schemas at the top level", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.String.annotate({ documentation: "Primary token" }),
+      ),
+    ).toBe(lines("/** Primary token */", "string"))
+  })
+
+  it("renders documented object schemas at the top level", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Struct({
+          token: Schema.String,
+        }).annotate({ documentation: "Token payload" }),
+      ),
+    ).toBe(
+      lines("/** Token payload */", "{", "    readonly token: string;", "}"),
+    )
+  })
+
+  it("renders documented array schemas at the top level", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Array(Schema.String).annotate({ documentation: "Token list" }),
+      ),
+    ).toBe(lines("/** Token list */", "readonly string[]"))
+  })
+
+  it("renders documented recursive schemas at the top level", () => {
+    type Category = {
+      readonly child?: Category
+    }
+
+    const Category: Schema.Schema<Category> = Schema.suspend(
+      (): Schema.Schema<Category> =>
+        Schema.Struct({
+          child: Schema.optionalKey(Category),
+        }).annotate({
+          documentation: "Recursive category",
+          identifier: "Category",
+        }),
+    )
+
+    expect(TypeBuilder.render(Category)).toBe(
+      lines(
+        "/** Recursive category */",
+        "{",
+        "    readonly child?: Category;",
+        "}",
+      ),
+    )
+  })
 })

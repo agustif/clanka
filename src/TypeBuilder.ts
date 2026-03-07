@@ -187,6 +187,26 @@ const withJsDoc = <T extends ts.Node>(
   return node
 }
 
+const rootDocumentation = (ast: AST.AST): string | undefined => {
+  const visitedSuspends = new Set<AST.Suspend>()
+  let current: AST.AST = ast
+
+  while (true) {
+    const documentation = resolveDocumentation(current)
+
+    if (documentation !== undefined) {
+      return documentation
+    }
+
+    if (current._tag !== "Suspend" || visitedSuspends.has(current)) {
+      return undefined
+    }
+
+    visitedSuspends.add(current)
+    current = current.thunk()
+  }
+}
+
 const propertySignatureTypeElement = (
   propertySignature: AST.PropertySignature,
   context: RenderContext,
@@ -498,8 +518,14 @@ export const printNode = (
 export const render = (
   schema: Schema.Top,
   options?: ts.PrinterOptions,
-): string =>
-  printNode(
-    toTypeNode(AST.toType(schema.ast), { activeNodes: new Set() }),
+): string => {
+  const ast = AST.toType(schema.ast)
+
+  return printNode(
+    withJsDoc(
+      toTypeNode(ast, { activeNodes: new Set() }),
+      rootDocumentation(ast),
+    ),
     options,
   )
+}
