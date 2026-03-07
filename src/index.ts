@@ -1,4 +1,3 @@
-export { program } from "./Example.ts"
 export {
   CLIENT_ID,
   CODEX_API_BASE,
