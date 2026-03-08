@@ -59,7 +59,11 @@ ${agentsMd}`,
           Stream.mkString,
         )
         console.log("Result:")
-        console.log(result.slice(0, 1000))
+        console.log(
+          result.length > 1500
+            ? result.slice(0, 1500) + "\n\n[output truncated]"
+            : result,
+        )
         prompt = Prompt.concat(prompt, `Javascript output:\n\n${result}`)
         output = ""
       }
