@@ -50,8 +50,8 @@ const fail = (message: string): never => {
 
 const locate = (text: string) => {
   const lines = text.split("\n")
-  const begin = lines.findIndex((line) => line.trim() === BEGIN)
-  const end = lines.findIndex((line) => line.trim() === END)
+  const begin = lines.findIndex((line) => line === BEGIN)
+  const end = lines.findIndex((line) => line === END)
   if (begin === -1 || end === -1 || begin >= end) {
     fail("Invalid patch format: missing Begin/End markers")
   }

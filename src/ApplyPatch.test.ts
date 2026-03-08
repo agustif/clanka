@@ -70,6 +70,38 @@ describe("patchContent", () => {
     ])
   })
 
+  it("parses wrapped patches when hunks contain marker text", () => {
+    expect(
+      parsePatch(
+        [
+          "*** Begin Patch",
+          "*** Update File: src/app.ts",
+          "@@",
+          " *** End Patch",
+          "-old",
+          "+new",
+          "*** Delete File: obsolete.txt",
+          "*** End Patch",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      {
+        type: "update",
+        path: "src/app.ts",
+        chunks: [
+          {
+            old: ["*** End Patch", "old"],
+            next: ["*** End Patch", "new"],
+          },
+        ],
+      },
+      {
+        type: "delete",
+        path: "obsolete.txt",
+      },
+    ])
+  })
+
   it("parses heredoc-wrapped hunks", () => {
     expect(
       patchContent("sample.txt", "old\n", "<<'EOF'\n@@\n-old\n+new\nEOF"),

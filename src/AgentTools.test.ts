@@ -178,4 +178,74 @@ describe("AgentTools", () => {
       await rm(tempRoot, { force: true, recursive: true })
     }
   })
+
+  it("plans later hunks against in-memory file state", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "clanka-apply-patch-state-"))
+
+    try {
+      await mkdir(join(tempRoot, "src"), { recursive: true })
+      await writeFile(join(tempRoot, "src", "app.txt"), "old\n", "utf8")
+
+      const output = await Effect.runPromise(
+        Effect.gen(function* () {
+          const executor = yield* Executor
+          const tools = yield* AgentTools
+
+          return yield* executor
+            .execute({
+              tools,
+              script: [
+                "const output = await applyPatch(`",
+                "*** Begin Patch",
+                "*** Add File: notes/hello.txt",
+                "+hello",
+                "*** Update File: notes/hello.txt",
+                "@@",
+                "-hello",
+                "+hello again",
+                "*** Update File: src/app.txt",
+                "*** Move to: src/main.txt",
+                "@@",
+                "-old",
+                "+new",
+                "*** Update File: src/main.txt",
+                "@@",
+                "-new",
+                "+newer",
+                "*** End Patch",
+                "`)",
+                "console.log(output)",
+              ].join("\n"),
+            })
+            .pipe(Stream.mkString)
+        }).pipe(
+          Effect.provide([
+            AgentToolHandlers,
+            Executor.layer,
+            ToolkitRenderer.layer,
+          ]),
+          Effect.provideService(CurrentDirectory, tempRoot),
+          Effect.provideServiceEffect(
+            TaskCompleteDeferred,
+            Deferred.make<string>(),
+          ),
+        ),
+      )
+
+      expect(output).toContain("A notes/hello.txt")
+      expect(output).toContain("M notes/hello.txt")
+      expect(output).toContain("M src/main.txt")
+      expect(await readFile(join(tempRoot, "notes", "hello.txt"), "utf8")).toBe(
+        "hello again\n",
+      )
+      expect(await readFile(join(tempRoot, "src", "main.txt"), "utf8")).toBe(
+        "newer\n",
+      )
+      await expect(
+        readFile(join(tempRoot, "src", "app.txt"), "utf8"),
+      ).rejects.toThrow()
+    } finally {
+      await rm(tempRoot, { force: true, recursive: true })
+    }
+  })
 })
