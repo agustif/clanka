@@ -119,6 +119,14 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [CurrentDirectory],
   }),
+  Tool.make("gh", {
+    description: "Use the GitHub CLI to run a command and return the output",
+    parameters: Schema.Array(Schema.String).annotate({
+      identifier: "args",
+    }),
+    success: Schema.String,
+    dependencies: [CurrentDirectory],
+  }),
   Tool.make("sleep", {
     description: "Sleep for a specified number of milliseconds",
     parameters: Schema.Finite.annotate({
@@ -139,6 +147,23 @@ export const AgentToolHandlers = AgentTools.toLayer(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const fs = yield* FileSystem.FileSystem
     const pathService = yield* Path.Path
+
+    const execute = Effect.fn(function* (command: ChildProcess.Command) {
+      const handle = yield* spawner.spawn(command)
+      return yield* handle.all.pipe(
+        Stream.decodeText,
+        Stream.mkString,
+        Effect.flatMap(
+          Effect.fnUntraced(function* (output) {
+            const exitCode = yield* handle.exitCode
+            if (exitCode === 0) return output
+            return yield* Effect.die(
+              new Error(`Command failed with exit code ${exitCode}: ${output}`),
+            )
+          }),
+        ),
+      )
+    }, Effect.scoped)
 
     return AgentTools.of({
       readFile: Effect.fn("AgentTools.readFile")(function* (options) {
@@ -252,37 +277,28 @@ export const AgentToolHandlers = AgentTools.toLayer(
         const cwd = yield* CurrentDirectory
         return yield* Effect.promise(() => Glob.glob(pattern, { cwd }))
       }),
-      bash: Effect.fn("AgentTools.bash")(
-        function* (command) {
-          yield* Effect.logInfo(`Calling "bash"`).pipe(
-            Effect.annotateLogs({ command }),
-          )
-          const cwd = yield* CurrentDirectory
-          const cmd = ChildProcess.make("bash", ["-c", command], {
-            cwd,
-            stdin: "ignore",
-          })
-          const handle = yield* spawner.spawn(cmd)
-          return yield* handle.all.pipe(
-            Stream.decodeText,
-            Stream.mkString,
-            Effect.flatMap(
-              Effect.fnUntraced(function* (output) {
-                const exitCode = yield* handle.exitCode
-                if (exitCode === 0) return output
-                // @effect-diagnostics-next-line globalErrorInEffectFailure:off
-                return yield* Effect.fail(
-                  new Error(
-                    `Command failed with exit code ${exitCode}: ${output}`,
-                  ),
-                )
-              }),
-            ),
-          )
-        },
-        Effect.scoped,
-        Effect.orDie,
-      ),
+      bash: Effect.fn("AgentTools.bash")(function* (command) {
+        yield* Effect.logInfo(`Calling "bash"`).pipe(
+          Effect.annotateLogs({ command }),
+        )
+        const cwd = yield* CurrentDirectory
+        const cmd = ChildProcess.make("bash", ["-c", command], {
+          cwd,
+          stdin: "ignore",
+        })
+        return yield* execute(cmd)
+      }, Effect.orDie),
+      gh: Effect.fn("AgentTools.gh")(function* (args) {
+        yield* Effect.logInfo(`Calling "gh"`).pipe(
+          Effect.annotateLogs({ args }),
+        )
+        const cwd = yield* CurrentDirectory
+        const cmd = ChildProcess.make("gh", args, {
+          cwd,
+          stdin: "ignore",
+        })
+        return yield* execute(cmd)
+      }, Effect.orDie),
       sleep: Effect.fn("AgentTools.sleep")(function* (ms) {
         yield* Effect.logInfo(`Calling "sleep" for ${ms}ms`)
         return yield* Effect.sleep(ms)
