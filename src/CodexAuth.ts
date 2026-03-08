@@ -298,191 +298,6 @@ const refreshTokenError = (message: string, cause?: unknown) =>
     ...(cause === undefined ? {} : { cause }),
   })
 
-export const requestDeviceCode = Effect.fn("CodexAuth.requestDeviceCode")(
-  function* (): Effect.fn.Return<
-    DeviceCodeData,
-    CodexAuthError,
-    HttpClient.HttpClient
-  > {
-    const response = yield* HttpClientRequest.post(DEVICE_CODE_URL).pipe(
-      HttpClientRequest.bodyJsonUnsafe({
-        client_id: CLIENT_ID,
-      }),
-      HttpClient.execute,
-      Effect.mapError((cause) =>
-        requestDeviceCodeError(
-          "Failed to request a Codex device authorization code",
-          cause,
-        ),
-      ),
-    )
-
-    if (!isSuccessfulStatus(response.status)) {
-      return yield* requestDeviceCodeError(
-        `Failed to request a Codex device authorization code: ${response.status}`,
-      )
-    }
-
-    const payload = yield* HttpClientResponse.schemaBodyJson(
-      DeviceCodeResponseSchema,
-    )(response).pipe(
-      Effect.mapError((cause) =>
-        requestDeviceCodeError(
-          "Failed to decode the Codex device authorization response",
-          cause,
-        ),
-      ),
-    )
-
-    return {
-      deviceAuthId: payload.device_auth_id,
-      userCode: payload.user_code,
-      intervalMs: normalizePollInterval(payload.interval),
-    }
-  },
-)
-
-export const pollAuthorization = Effect.fn("CodexAuth.pollAuthorization")(
-  function* (
-    deviceCode: DeviceCodeData,
-  ): Effect.fn.Return<
-    AuthorizationCodeData,
-    CodexAuthError,
-    HttpClient.HttpClient
-  > {
-    const request = HttpClientRequest.post(DEVICE_TOKEN_URL).pipe(
-      HttpClientRequest.bodyJsonUnsafe({
-        device_auth_id: deviceCode.deviceAuthId,
-        user_code: deviceCode.userCode,
-      }),
-    )
-
-    const delayMs = deviceCode.intervalMs + POLLING_SAFETY_MARGIN_MS
-
-    const loop: Effect.Effect<
-      AuthorizationCodeData,
-      CodexAuthError,
-      HttpClient.HttpClient
-    > = Effect.suspend(() =>
-      HttpClient.execute(request).pipe(
-        Effect.mapError((cause) =>
-          requestDeviceCodeError(
-            "Failed to poll Codex device authorization",
-            cause,
-          ),
-        ),
-        Effect.flatMap((response) => {
-          if (response.status === 200) {
-            return HttpClientResponse.schemaBodyJson(
-              AuthorizationCodeResponseSchema,
-            )(response).pipe(
-              Effect.mapError((cause) =>
-                requestDeviceCodeError(
-                  "Failed to decode the Codex authorization approval response",
-                  cause,
-                ),
-              ),
-              Effect.map((payload) => ({
-                authorizationCode: payload.authorization_code,
-                codeVerifier: payload.code_verifier,
-              })),
-            )
-          }
-
-          if (response.status === 403 || response.status === 404) {
-            return Effect.sleep(delayMs).pipe(Effect.andThen(loop))
-          }
-
-          return Effect.fail(
-            requestDeviceCodeError(
-              `Codex device authorization failed while polling: ${response.status}`,
-            ),
-          )
-        }),
-      ),
-    )
-
-    return yield* loop
-  },
-)
-
-export const exchangeAuthorizationCode = Effect.fn(
-  "CodexAuth.exchangeAuthorizationCode",
-)(function* (
-  authorization: AuthorizationCodeData,
-): Effect.fn.Return<TokenData, CodexAuthError, HttpClient.HttpClient> {
-  const response = yield* HttpClientRequest.post(TOKEN_URL).pipe(
-    HttpClientRequest.bodyUrlParams({
-      grant_type: "authorization_code",
-      code: authorization.authorizationCode,
-      redirect_uri: DEVICE_REDIRECT_URI,
-      client_id: CLIENT_ID,
-      code_verifier: authorization.codeVerifier,
-    }),
-    HttpClient.execute,
-    Effect.mapError((cause) =>
-      tokenExchangeError(
-        "Failed to exchange the Codex authorization code",
-        cause,
-      ),
-    ),
-  )
-
-  if (!isSuccessfulStatus(response.status)) {
-    return yield* tokenExchangeError(
-      `Codex token exchange failed: ${response.status}`,
-    )
-  }
-
-  const payload = yield* HttpClientResponse.schemaBodyJson(TokenResponseSchema)(
-    response,
-  ).pipe(
-    Effect.mapError((cause) =>
-      tokenExchangeError(
-        "Failed to decode the Codex token exchange response",
-        cause,
-      ),
-    ),
-  )
-
-  return toTokenDataFromResponse(payload)
-})
-
-export const refreshToken = Effect.fn("CodexAuth.refreshToken")(function* (
-  refresh: string,
-): Effect.fn.Return<TokenData, CodexAuthError, HttpClient.HttpClient> {
-  const response = yield* HttpClientRequest.post(TOKEN_URL).pipe(
-    HttpClientRequest.bodyUrlParams({
-      grant_type: "refresh_token",
-      refresh_token: refresh,
-      client_id: CLIENT_ID,
-    }),
-    HttpClient.execute,
-    Effect.mapError((cause) =>
-      refreshTokenError("Failed to refresh the Codex access token", cause),
-    ),
-  )
-
-  if (!isSuccessfulStatus(response.status)) {
-    return yield* refreshTokenError(
-      `Codex token refresh failed: ${response.status}`,
-    )
-  }
-
-  const payload = yield* HttpClientResponse.schemaBodyJson(TokenResponseSchema)(
-    response,
-  ).pipe(
-    Effect.mapError((cause) =>
-      refreshTokenError(
-        "Failed to decode the Codex refresh token response",
-        cause,
-      ),
-    ),
-  )
-
-  return toTokenDataFromResponse(payload)
-})
-
 export const toCodexAuthKeyValueStore = (store: KeyValueStore.KeyValueStore) =>
   KeyValueStore.prefix(store, STORE_PREFIX)
 
@@ -509,11 +324,6 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
         Effect.orDie,
       )
 
-      const withHttpClient = <A, E>(
-        effect: Effect.Effect<A, E, HttpClient.HttpClient>,
-      ): Effect.Effect<A, E> =>
-        Effect.provideService(effect, HttpClient.HttpClient, httpClient)
-
       const saveToken = (token: TokenData) =>
         Effect.orDie(tokenStore.set(STORE_TOKEN_KEY, token)).pipe(
           Effect.tap(() =>
@@ -533,14 +343,12 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
       )
 
       const authenticateWithDeviceFlow = Effect.gen(function* () {
-        const deviceCode = yield* withHttpClient(requestDeviceCode())
+        const deviceCode = yield* requestDeviceCode
         yield* Console.log(
           `Open ${DEVICE_VERIFICATION_URL} and enter code: ${deviceCode.userCode}`,
         )
-        const authorization = yield* withHttpClient(
-          pollAuthorization(deviceCode),
-        )
-        return yield* withHttpClient(exchangeAuthorizationCode(authorization))
+        const authorization = yield* pollAuthorization(deviceCode)
+        return yield* exchangeAuthorizationCode(authorization)
       })
 
       const authenticateNoLock = Effect.uninterruptibleMask((restore) =>
@@ -562,7 +370,7 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
           }
 
           const refreshedToken = yield* restore(
-            withHttpClient(refreshToken(currentToken.value.refresh)).pipe(
+            refreshToken(currentToken.value.refresh).pipe(
               Effect.tapError((error) =>
                 Console.warn(
                   `Codex token refresh failed, falling back to device auth: ${error.message}`,
@@ -586,6 +394,182 @@ export class CodexAuth extends ServiceMap.Service<CodexAuth>()(
           return yield* saveToken(token)
         }),
       )
+
+      const requestDeviceCode = Effect.gen(function* (): Effect.fn.Return<
+        DeviceCodeData,
+        CodexAuthError
+      > {
+        const response = yield* HttpClientRequest.post(DEVICE_CODE_URL).pipe(
+          HttpClientRequest.bodyJsonUnsafe({
+            client_id: CLIENT_ID,
+          }),
+          httpClient.execute,
+          Effect.mapError((cause) =>
+            requestDeviceCodeError(
+              "Failed to request a Codex device authorization code",
+              cause,
+            ),
+          ),
+        )
+
+        if (!isSuccessfulStatus(response.status)) {
+          return yield* requestDeviceCodeError(
+            `Failed to request a Codex device authorization code: ${response.status}`,
+          )
+        }
+
+        const payload = yield* HttpClientResponse.schemaBodyJson(
+          DeviceCodeResponseSchema,
+        )(response).pipe(
+          Effect.mapError((cause) =>
+            requestDeviceCodeError(
+              "Failed to decode the Codex device authorization response",
+              cause,
+            ),
+          ),
+        )
+
+        return {
+          deviceAuthId: payload.device_auth_id,
+          userCode: payload.user_code,
+          intervalMs: normalizePollInterval(payload.interval),
+        }
+      }).pipe(Effect.withSpan("CodexAuth.requestDeviceCode"))
+
+      const pollAuthorization = Effect.fn("CodexAuth.pollAuthorization")(
+        function* (
+          deviceCode: DeviceCodeData,
+        ): Effect.fn.Return<AuthorizationCodeData, CodexAuthError> {
+          const request = HttpClientRequest.post(DEVICE_TOKEN_URL).pipe(
+            HttpClientRequest.bodyJsonUnsafe({
+              device_auth_id: deviceCode.deviceAuthId,
+              user_code: deviceCode.userCode,
+            }),
+          )
+
+          const delayMs = deviceCode.intervalMs + POLLING_SAFETY_MARGIN_MS
+
+          const loop: Effect.Effect<AuthorizationCodeData, CodexAuthError> =
+            httpClient.execute(request).pipe(
+              Effect.mapError((cause) =>
+                requestDeviceCodeError(
+                  "Failed to poll Codex device authorization",
+                  cause,
+                ),
+              ),
+              Effect.flatMap((response) => {
+                if (response.status === 200) {
+                  return HttpClientResponse.schemaBodyJson(
+                    AuthorizationCodeResponseSchema,
+                  )(response).pipe(
+                    Effect.mapError((cause) =>
+                      requestDeviceCodeError(
+                        "Failed to decode the Codex authorization approval response",
+                        cause,
+                      ),
+                    ),
+                    Effect.map((payload) => ({
+                      authorizationCode: payload.authorization_code,
+                      codeVerifier: payload.code_verifier,
+                    })),
+                  )
+                }
+
+                if (response.status === 403 || response.status === 404) {
+                  return Effect.sleep(delayMs).pipe(Effect.andThen(loop))
+                }
+
+                return Effect.fail(
+                  requestDeviceCodeError(
+                    `Codex device authorization failed while polling: ${response.status}`,
+                  ),
+                )
+              }),
+            )
+
+          return yield* loop
+        },
+      )
+
+      const exchangeAuthorizationCode = Effect.fn(
+        "CodexAuth.exchangeAuthorizationCode",
+      )(function* (
+        authorization: AuthorizationCodeData,
+      ): Effect.fn.Return<TokenData, CodexAuthError> {
+        const response = yield* HttpClientRequest.post(TOKEN_URL).pipe(
+          HttpClientRequest.bodyUrlParams({
+            grant_type: "authorization_code",
+            code: authorization.authorizationCode,
+            redirect_uri: DEVICE_REDIRECT_URI,
+            client_id: CLIENT_ID,
+            code_verifier: authorization.codeVerifier,
+          }),
+          httpClient.execute,
+          Effect.mapError((cause) =>
+            tokenExchangeError(
+              "Failed to exchange the Codex authorization code",
+              cause,
+            ),
+          ),
+        )
+
+        if (!isSuccessfulStatus(response.status)) {
+          return yield* tokenExchangeError(
+            `Codex token exchange failed: ${response.status}`,
+          )
+        }
+
+        const payload = yield* HttpClientResponse.schemaBodyJson(
+          TokenResponseSchema,
+        )(response).pipe(
+          Effect.mapError((cause) =>
+            tokenExchangeError(
+              "Failed to decode the Codex token exchange response",
+              cause,
+            ),
+          ),
+        )
+
+        return toTokenDataFromResponse(payload)
+      })
+
+      const refreshToken = Effect.fn("CodexAuth.refreshToken")(function* (
+        refresh: string,
+      ): Effect.fn.Return<TokenData, CodexAuthError> {
+        const response = yield* HttpClientRequest.post(TOKEN_URL).pipe(
+          HttpClientRequest.bodyUrlParams({
+            grant_type: "refresh_token",
+            refresh_token: refresh,
+            client_id: CLIENT_ID,
+          }),
+          httpClient.execute,
+          Effect.mapError((cause) =>
+            refreshTokenError(
+              "Failed to refresh the Codex access token",
+              cause,
+            ),
+          ),
+        )
+
+        if (!isSuccessfulStatus(response.status)) {
+          return yield* refreshTokenError(
+            `Codex token refresh failed: ${response.status}`,
+          )
+        }
+
+        const payload = yield* HttpClientResponse.schemaBodyJson(
+          TokenResponseSchema,
+        )(response).pipe(
+          Effect.mapError((cause) =>
+            refreshTokenError(
+              "Failed to decode the Codex refresh token response",
+              cause,
+            ),
+          ),
+        )
+
+        return toTokenDataFromResponse(payload)
+      })
 
       return {
         get: semaphore.withPermit(getNoLock),
