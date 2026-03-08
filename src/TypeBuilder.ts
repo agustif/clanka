@@ -5,8 +5,9 @@ const identifierPattern = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/u
 
 const Precedence = {
   Union: 0,
-  Postfix: 1,
-  Primary: 2,
+  TypeOperator: 1,
+  Postfix: 2,
+  Primary: 3,
 } as const
 
 type Precedence = (typeof Precedence)[keyof typeof Precedence]
@@ -119,7 +120,7 @@ const primitiveTypeNode = (keyword: string): RenderedType => ({
 
 const readonlyTypeNode = (rendered: RenderedType, context: RenderContext) => ({
   text: prefixFirstLine(rendered.text, "readonly ", context.options.newLine),
-  precedence: Precedence.Primary,
+  precedence: Precedence.TypeOperator,
 })
 
 const nullTypeNode = (): RenderedType => ({
@@ -213,7 +214,7 @@ const uniqueSymbolTypeNode = (ast: AST.UniqueSymbol): RenderedType => {
       description === undefined
         ? "unique symbol"
         : `typeof Symbol.for(${JSON.stringify(description)})`,
-    precedence: Precedence.Primary,
+    precedence: Precedence.TypeOperator,
   }
 }
 
@@ -458,7 +459,7 @@ const tupleElementTypeNode = (
   )
   const optionalSuffix = AST.isOptional(ast) ? "?" : ""
   const typeText = AST.isOptional(ast)
-    ? withParenthesesIfNeeded(type, Precedence.Postfix)
+    ? withParenthesesIfNeeded(type, Precedence.TypeOperator)
     : type.text
 
   return prefixFirstLine(
@@ -545,7 +546,7 @@ const arraysTypeNode = (
             ...tupleLines,
             `${indent(indentLevel)}]`,
           ].join(context.options.newLine),
-    precedence: Precedence.Primary,
+    precedence: ast.isMutable ? Precedence.Primary : Precedence.TypeOperator,
   }
 }
 

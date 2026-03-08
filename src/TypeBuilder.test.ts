@@ -183,6 +183,27 @@ describe("TypeBuilder", () => {
     ).toBe("readonly (number | boolean)[]")
   })
 
+  it("parenthesizes nested readonly array element types", () => {
+    expect(TypeBuilder.render(Schema.Array(Schema.Array(Schema.String)))).toBe(
+      "readonly (readonly string[])[]",
+    )
+  })
+
+  it("parenthesizes nested readonly tuple element types", () => {
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.Tuple([Schema.String]))),
+    ).toBe(lines("readonly (readonly [", "    string", "])[]"))
+  })
+
+  it("parenthesizes unique symbol array element types", () => {
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.UniqueSymbol(Symbol()))),
+    ).toBe("readonly (unique symbol)[]")
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.UniqueSymbol(Symbol("token")))),
+    ).toBe('readonly (typeof Symbol.for("token"))[]')
+  })
+
   it("renders readonly tuples", () => {
     expect(
       TypeBuilder.render(Schema.Tuple([Schema.String, Schema.Number])),
