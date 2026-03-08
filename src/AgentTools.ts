@@ -249,6 +249,14 @@ export const AgentToolHandlers = AgentTools.toLayer(
       applyPatch: Effect.fn("AgentTools.applyPatch")(function* (patchText) {
         yield* Effect.logInfo(`Calling "applyPatch"`)
         const cwd = yield* CurrentDirectory
+        const err = (cause: unknown) =>
+          cause instanceof Error ? cause : new Error(String(cause))
+        const fail = (path: string, reason: "delete" | "update") =>
+          Effect.fail(
+            new Error(
+              `applyPatch verification failed: Failed to read file to ${reason}: ${path}`,
+            ),
+          )
         const state = new Map<string, string | null>()
         const steps = [] as Array<
           | {
@@ -274,19 +282,12 @@ export const AgentToolHandlers = AgentTools.toLayer(
           path: string,
           reason: "delete" | "update",
         ) {
-          const cached = state.get(path)
-          if (cached !== undefined) {
-            if (cached === null) {
-              throw new Error(
-                `applyPatch verification failed: Failed to read file to ${reason}: ${path}`,
-              )
-            }
-            return cached
-          }
           if (state.has(path)) {
-            throw new Error(
-              `applyPatch verification failed: Failed to read file to ${reason}: ${path}`,
-            )
+            const input = state.get(path)
+            if (input === null) {
+              return yield* fail(path, reason)
+            }
+            return input!
           }
 
           const input = yield* fs
@@ -303,7 +304,10 @@ export const AgentToolHandlers = AgentTools.toLayer(
           return input
         })
 
-        for (const patch of parsePatch(patchText)) {
+        for (const patch of yield* Effect.try({
+          try: () => parsePatch(patchText),
+          catch: err,
+        })) {
           const path = pathService.resolve(cwd, patch.path)
           switch (patch.type) {
             case "add": {
@@ -332,7 +336,10 @@ export const AgentToolHandlers = AgentTools.toLayer(
             }
             case "update": {
               const input = yield* load(path, "update")
-              const next = patchChunks(path, input, patch.chunks)
+              const next = yield* Effect.try({
+                try: () => patchChunks(path, input, patch.chunks),
+                catch: err,
+              })
               const movePath =
                 patch.movePath === undefined
                   ? undefined
