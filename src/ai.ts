@@ -53,6 +53,9 @@ Effect.gen(function* () {
         Stream.takeUntil((part) => part.type === "text-end"),
         Stream.runForEach((part) => {
           switch (part.type) {
+            case "text-start":
+              output = ""
+              break
             case "text-delta":
               output += part.delta
               break
@@ -69,6 +72,9 @@ Effect.gen(function* () {
           return Effect.void
         }),
         Effect.tapCause(Effect.logError),
+        Effect.retry({
+          while: (err) => err.isRetryable,
+        }),
       )
       output = output.trim()
     }

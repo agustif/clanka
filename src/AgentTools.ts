@@ -35,7 +35,7 @@ export const AgentTools = Toolkit.make(
     parameters: Schema.String.annotate({
       identifier: "patchText",
       documentation:
-        "Wrapped patch with Add/Delete/Update sections. Make sure to escape backticks \\` if using js template strings.",
+        "Wrapped patch with Add/Delete/Update sections. Use String.raw(``) to create the string.",
     }),
     success: Schema.String,
     dependencies: [CurrentDirectory],
