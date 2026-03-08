@@ -100,8 +100,9 @@ export const AgentTools = Toolkit.make(
   }),
   Tool.make("httpGet", {
     description: "Fetch a URL and return its text response.",
-    parameters: Schema.String.annotate({
-      identifier: "url",
+    parameters: Schema.Struct({
+      url: Schema.String,
+      headers: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
     }),
     success: Schema.String,
   }),
@@ -232,13 +233,17 @@ export const AgentToolHandlers = AgentTools.toLayer(
         })
         return yield* spawner.string(cmd).pipe(Effect.orDie)
       }),
-      httpGet: Effect.fn("AgentTools.httpGet")(function* (url) {
+      httpGet: Effect.fn("AgentTools.httpGet")(function* (options) {
         yield* Effect.logInfo(`Calling "httpGet"`).pipe(
-          Effect.annotateLogs({ url }),
+          Effect.annotateLogs({ url: options.url }),
         )
-        const response = yield* Effect.promise(() => fetch(url)).pipe(
-          Effect.orDie,
-        )
+        const init =
+          options.headers === undefined
+            ? undefined
+            : { headers: options.headers }
+        const response = yield* Effect.promise(() =>
+          fetch(options.url, init),
+        ).pipe(Effect.orDie)
         return yield* Effect.promise(() => response.text()).pipe(Effect.orDie)
       }),
       sleep: Effect.fn("AgentTools.sleep")(function* (ms) {
