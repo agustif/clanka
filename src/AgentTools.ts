@@ -1,10 +1,12 @@
+/**
+ * @since 1.0.0
+ */
 import {
   Array,
   Data,
   Deferred,
   Effect,
   FileSystem,
-  Layer,
   Path,
   pipe,
   Schema,
@@ -15,19 +17,53 @@ import { Tool, Toolkit } from "effect/unstable/ai"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as Glob from "glob"
 import * as Rg from "@vscode/ripgrep"
-import { NodeServices } from "@effect/platform-node"
 import { parsePatch, patchChunks } from "./ApplyPatch.ts"
 
+/**
+ * @since 1.0.0
+ * @category Context
+ */
 export class CurrentDirectory extends ServiceMap.Service<
   CurrentDirectory,
   string
 >()("clanka/AgentTools/CurrentDirectory") {}
 
+/**
+ * @since 1.0.0
+ * @category Context
+ */
 export class TaskCompleteDeferred extends ServiceMap.Service<
   TaskCompleteDeferred,
   Deferred.Deferred<string>
 >()("clanka/AgentTools/TaskCompleteDeferred") {}
 
+/**
+ * @since 1.0.0
+ * @category Context
+ */
+export class SubagentContext extends ServiceMap.Service<
+  SubagentContext,
+  {
+    spawn(options: { readonly prompt: string }): Effect.Effect<string>
+  }
+>()("clanka/AgentTools/SubagentContext") {}
+
+/**
+ * @since 1.0.0
+ * @category Context
+ */
+export const makeContextNoop = (cwd?: string) =>
+  SubagentContext.serviceMap({
+    spawn: () => Effect.die("Not implemented"),
+  }).pipe(
+    ServiceMap.add(CurrentDirectory, cwd ?? "/"),
+    ServiceMap.add(TaskCompleteDeferred, Deferred.makeUnsafe()),
+  )
+
+/**
+ * @since 1.0.0
+ * @category Toolkit
+ */
 export const AgentTools = Toolkit.make(
   Tool.make("readFile", {
     description:
@@ -127,6 +163,15 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [CurrentDirectory],
   }),
+  Tool.make("subagent", {
+    description:
+      "Prompt another agent with the same tools to assist with a subtask. The subagent will return a markdown summary of the work it did.",
+    parameters: Schema.String.annotate({
+      identifier: "prompt",
+    }),
+    success: Schema.String,
+    dependencies: [SubagentContext],
+  }),
   Tool.make("sleep", {
     description: "Sleep for a specified number of milliseconds",
     parameters: Schema.Finite.annotate({
@@ -134,14 +179,19 @@ export const AgentTools = Toolkit.make(
     }),
   }),
   Tool.make("taskComplete", {
-    description: "Only call this when you have fully completed the user's task",
+    description:
+      "Only call this when you have fully completed the user's task. Provide a markdown summary of the work you have done.",
     parameters: Schema.String.annotate({
-      identifier: "message",
+      identifier: "summary",
     }),
     dependencies: [TaskCompleteDeferred],
   }),
 )
 
+/**
+ * @since 1.0.0
+ * @category Toolkit
+ */
 export const AgentToolHandlers = AgentTools.toLayer(
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -437,14 +487,21 @@ export const AgentToolHandlers = AgentTools.toLayer(
 
         return `Success. Updated the following files:\n${out.join("\n")}`
       }, Effect.orDie),
+      subagent: Effect.fn("AgentTools.subagent")(function* (prompt) {
+        yield* Effect.logInfo(`Calling "subagent"`).pipe(
+          Effect.annotateLogs({ prompt }),
+        )
+        const context = yield* SubagentContext
+        return yield* context.spawn({ prompt })
+      }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
         const deferred = yield* TaskCompleteDeferred
         yield* Deferred.succeed(deferred, message)
       }),
     })
   }),
-).pipe(Layer.provide(NodeServices.layer))
+)
 
-export class ApplyPatchError extends Data.TaggedClass("ApplyPatchError")<{
+class ApplyPatchError extends Data.TaggedClass("ApplyPatchError")<{
   readonly message: string
 }> {}

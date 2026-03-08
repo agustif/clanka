@@ -5,18 +5,16 @@
   "publishConfig": {
     "access": "public"
   },
-  "bin": {
-    "lalph": "./dist/cli.mjs"
-  },
-  "main": "./dist/index.mjs",
   "exports": {
-    ".": "./dist/index.mjs",
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js",
     "./package.json": "./package.json"
   },
   "scripts": {
     "prepare": "husky && effect-language-service patch",
     "check": "oxlint -c .oxlintrc.json --fix && pnpm tsgo --noEmit",
     "test": "vitest run",
+    "build": "tsc -b tsconfig.json",
     "prepublishOnly": "pnpm build"
   },
   "files": [
@@ -35,6 +33,10 @@
     "@vscode/ripgrep": "^1.17.0",
     "glob": "^13.0.6"
   },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.29",
+    "@effect/ai-openai": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15"
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
@@ -50,6 +52,7 @@
     "lint-staged": "^16.2.7",
     "oxlint": "^1.49.0",
     "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
   "lint-staged": {

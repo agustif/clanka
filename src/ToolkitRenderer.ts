@@ -1,8 +1,15 @@
+/**
+ * @since 1.0.0
+ */
 import { Array, Layer, SchemaAST, ServiceMap } from "effect"
 import { Tool, Toolkit } from "effect/unstable/ai"
 import * as TypeBuilder from "./TypeBuilder.ts"
 import { memoize } from "effect/Function"
 
+/**
+ * @since 1.0.0
+ * @category Services
+ */
 export class ToolkitRenderer extends ServiceMap.Service<
   ToolkitRenderer,
   {

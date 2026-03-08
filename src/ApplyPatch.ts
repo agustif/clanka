@@ -1,3 +1,7 @@
+/**
+ * @since 1.0.0
+ */
+
 export type Chunk = {
   readonly old: ReadonlyArray<string>
   readonly next: ReadonlyArray<string>

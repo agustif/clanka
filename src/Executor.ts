@@ -1,3 +1,6 @@
+/**
+ * @since 1.0.0
+ */
 import {
   Cause,
   Console,
@@ -13,6 +16,10 @@ import * as NodeConsole from "node:console"
 import * as NodeVm from "node:vm"
 import { Writable } from "node:stream"
 
+/**
+ * @since 1.0.0
+ * @category Services
+ */
 export class Executor extends ServiceMap.Service<
   Executor,
   {

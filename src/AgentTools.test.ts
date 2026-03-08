@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { NodeFileSystem } from "@effect/platform-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { Deferred, Effect, FileSystem, Stream } from "effect"
 import { describe, it } from "@effect/vitest"
 import { expect } from "vitest"
@@ -8,6 +8,7 @@ import {
   AgentToolHandlers,
   AgentTools,
   CurrentDirectory,
+  makeContextNoop,
   TaskCompleteDeferred,
 } from "./AgentTools.ts"
 import { Executor } from "./Executor.ts"
@@ -47,8 +48,8 @@ describe("AgentTools", () => {
         AgentToolHandlers,
         Executor.layer,
         ToolkitRenderer.layer,
-        NodeFileSystem.layer,
       ]),
+      Effect.provide(NodeServices.layer),
       Effect.provideService(CurrentDirectory, process.cwd()),
       Effect.provideServiceEffect(
         TaskCompleteDeferred,
@@ -88,11 +89,7 @@ describe("AgentTools", () => {
         })
         .pipe(
           Stream.mkString,
-          Effect.provideService(CurrentDirectory, tempRoot),
-          Effect.provideServiceEffect(
-            TaskCompleteDeferred,
-            Deferred.make<string>(),
-          ),
+          Effect.provideServices(makeContextNoop(tempRoot)),
         )
 
       expect(output).toContain("A notes/hello.txt")
@@ -111,8 +108,8 @@ describe("AgentTools", () => {
         AgentToolHandlers,
         Executor.layer,
         ToolkitRenderer.layer,
-        NodeFileSystem.layer,
       ]),
+      Effect.provide(NodeServices.layer),
     ),
   )
 
@@ -153,11 +150,7 @@ describe("AgentTools", () => {
         })
         .pipe(
           Stream.mkString,
-          Effect.provideService(CurrentDirectory, tempRoot),
-          Effect.provideServiceEffect(
-            TaskCompleteDeferred,
-            Deferred.make<string>(),
-          ),
+          Effect.provideServices(makeContextNoop(tempRoot)),
         )
 
       expect(output).toContain("A notes/hello.txt")
@@ -175,8 +168,8 @@ describe("AgentTools", () => {
         AgentToolHandlers,
         Executor.layer,
         ToolkitRenderer.layer,
-        NodeFileSystem.layer,
       ]),
+      Effect.provide(NodeServices.layer),
     ),
   )
 
@@ -202,16 +195,7 @@ describe("AgentTools", () => {
         })
         .pipe(
           Stream.mkString,
-          Effect.provideService(CurrentDirectory, tempRoot),
-          Effect.provideServiceEffect(
-            TaskCompleteDeferred,
-            Deferred.make<string>(),
-          ),
-          Effect.provide([
-            AgentToolHandlers,
-            Executor.layer,
-            ToolkitRenderer.layer,
-          ]),
+          Effect.provideServices(makeContextNoop(tempRoot)),
         )
 
       expect(yield* fs.readFileString(join(tempRoot, "src", "main.txt"))).toBe(
@@ -225,6 +209,7 @@ describe("AgentTools", () => {
         ToolkitRenderer.layer,
         NodeFileSystem.layer,
       ]),
+      Effect.provide(NodeServices.layer),
     ),
   )
 })
