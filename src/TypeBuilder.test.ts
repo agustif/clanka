@@ -143,6 +143,26 @@ describe("TypeBuilder", () => {
     )
   })
 
+  it("renders nested object types", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Struct({
+          meta: Schema.Struct({
+            count: Schema.Number,
+          }),
+        }),
+      ),
+    ).toBe(
+      lines(
+        "{",
+        "    readonly meta: {",
+        "        readonly count: number;",
+        "    };",
+        "}",
+      ),
+    )
+  })
+
   it("renders readonly arrays", () => {
     expect(TypeBuilder.render(Schema.Array(Schema.String))).toBe(
       "readonly string[]",
@@ -153,6 +173,35 @@ describe("TypeBuilder", () => {
     expect(
       TypeBuilder.render(Schema.mutable(Schema.Array(Schema.String))),
     ).toBe("string[]")
+  })
+
+  it("parenthesizes union element arrays", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Array(Schema.Union([Schema.Number, Schema.Boolean])),
+      ),
+    ).toBe("readonly (number | boolean)[]")
+  })
+
+  it("parenthesizes nested readonly array element types", () => {
+    expect(TypeBuilder.render(Schema.Array(Schema.Array(Schema.String)))).toBe(
+      "readonly (readonly string[])[]",
+    )
+  })
+
+  it("parenthesizes nested readonly tuple element types", () => {
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.Tuple([Schema.String]))),
+    ).toBe(lines("readonly (readonly [", "    string", "])[]"))
+  })
+
+  it("parenthesizes unique symbol array element types", () => {
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.UniqueSymbol(Symbol()))),
+    ).toBe("readonly (unique symbol)[]")
+    expect(
+      TypeBuilder.render(Schema.Array(Schema.UniqueSymbol(Symbol("token")))),
+    ).toBe('readonly (typeof Symbol.for("token"))[]')
   })
 
   it("renders readonly tuples", () => {
@@ -433,5 +482,27 @@ describe("TypeBuilder", () => {
         "}",
       ),
     )
+  })
+
+  it("supports custom new lines", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Struct({
+          token: Schema.String,
+        }),
+        { newLine: "\r\n" },
+      ),
+    ).toBe("{\r\n    readonly token: string;\r\n}")
+  })
+
+  it("supports omitting trailing semicolons", () => {
+    expect(
+      TypeBuilder.render(
+        Schema.Struct({
+          token: Schema.String,
+        }),
+        { omitTrailingSemicolon: true },
+      ),
+    ).toBe(lines("{", "    readonly token: string", "}"))
   })
 })
