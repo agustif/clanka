@@ -1,16 +1,22 @@
 import { Effect, Layer, Stream } from "effect"
-import { Agent, Codex, OutputFormatter } from "../src/index.ts"
+import { Agent, Codex, GithubCopilot, OutputFormatter } from "../src/index.ts"
 import {
   NodeHttpClient,
   NodeRuntime,
   NodeServices,
 } from "@effect/platform-node"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
+import { OpenAiLanguageModel as CompatModel } from "@effect/ai-openai-compat"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 const Kvs = KeyValueStore.layerFileSystem("./data")
 
-const CodexLayer = Codex.CodexAiClient.pipe(
+const CodexLayer = Codex.layer.pipe(
+  Layer.provide(Kvs),
+  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(NodeServices.layer),
+)
+const CopilotLayer = GithubCopilot.layer.pipe(
   Layer.provide(Kvs),
   Layer.provide(NodeHttpClient.layerUndici),
   Layer.provide(NodeServices.layer),
@@ -18,10 +24,14 @@ const CodexLayer = Codex.CodexAiClient.pipe(
 
 const AgentModel = OpenAiLanguageModel.model("gpt-5.4", {
   reasoning: {
-    effort: "xhigh",
+    effort: "high",
     summary: "auto",
   },
-}).pipe(Layer.provide(CodexLayer))
+}).pipe(Layer.provideMerge(CodexLayer))
+
+const Opus = CompatModel.model("claude-opus-4.6").pipe(
+  Layer.provideMerge(CopilotLayer),
+)
 
 const SubAgentModel = OpenAiLanguageModel.model("gpt-5.4", {
   reasoning: {

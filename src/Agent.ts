@@ -17,7 +17,13 @@ import {
   ServiceMap,
   Stream,
 } from "effect"
-import { LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
+import {
+  AiError,
+  LanguageModel,
+  Prompt,
+  Tool,
+  Toolkit,
+} from "effect/unstable/ai"
 import {
   AgentToolHandlers,
   AgentTools,
@@ -28,7 +34,6 @@ import {
 import { Executor } from "./Executor.ts"
 import { ToolkitRenderer } from "./ToolkitRenderer.ts"
 import { ModelName, ProviderName } from "effect/unstable/ai/Model"
-import { OpenAiLanguageModel } from "@effect/ai-openai"
 import { type StreamPart } from "effect/unstable/ai/Response"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
@@ -37,7 +42,7 @@ import type { ChildProcessSpawner } from "effect/unstable/process"
  * @category Models
  */
 export interface Agent {
-  readonly output: Stream.Stream<Output, AgentFinished>
+  readonly output: Stream.Stream<Output, AgentFinished | AiError.AiError>
 
   /**
    * Send a message to the agent to steer its behavior. This is useful for
@@ -49,18 +54,6 @@ export interface Agent {
    */
   steer(message: string): Effect.Effect<void>
 }
-
-/**
- * A layer that provides most of the common services needed to run an agent.
- *
- * @since 1.0.0
- * @category Services
- */
-export const layerServices: Layer.Layer<
-  Tool.HandlersFor<typeof AgentTools.tools> | Executor | ToolkitRenderer,
-  never,
-  FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
-> = Layer.mergeAll(AgentToolHandlers, Executor.layer, ToolkitRenderer.layer)
 
 /**
  * Start an agent in the given directory with the given prompt and tools.
@@ -112,6 +105,7 @@ export const make: <
   const fs = yield* FileSystem.FileSystem
   const pathService = yield* Path.Path
   const executor = yield* Executor
+  const modelConfig = yield* AgentModelConfig
   const allTools = Toolkit.merge(AgentTools, options.tools ?? Toolkit.empty)
   const tools = yield* allTools
   const services = yield* Effect.services<
@@ -151,11 +145,6 @@ ${agentsMd.value}
     system += `\n${options.system}\n`
   }
 
-  const withSystemPrompt = OpenAiLanguageModel.withConfigOverride({
-    store: false,
-    instructions: system,
-  })
-
   let agentCounter = 0
 
   const outputBuffer = new Map<number, Array<Output>>()
@@ -166,13 +155,12 @@ ${agentsMd.value}
     prompt: Prompt.Prompt,
   ) => Stream.Stream<
     Output,
-    AgentFinished,
+    AgentFinished | AiError.AiError,
     LanguageModel.LanguageModel | ProviderName
   > = Effect.fnUntraced(function* (agentId, prompt) {
     const ai = yield* LanguageModel.LanguageModel
-    const provider = yield* ProviderName
     const deferred = yield* Deferred.make<string>()
-    const output = yield* Queue.make<Output, AgentFinished>()
+    const output = yield* Queue.make<Output, AgentFinished | AiError.AiError>()
 
     function maybeSend(agentId: number, part: Output, lock = false) {
       if (currentOutputAgent === null || currentOutputAgent === agentId) {
@@ -233,13 +221,14 @@ ${prompt}`),
               return Effect.void
             }),
             Effect.as(""),
-            Effect.catch((finished) => {
+            Effect.catchTag("AgentFinished", (finished) => {
               Queue.offerUnsafe(
                 output,
                 new SubagentComplete({ id, summary: finished.summary }),
               )
               return Effect.succeed(finished.summary)
             }),
+            Effect.orDie,
           )
         }).pipe(
           options.subagentModel
@@ -252,7 +241,7 @@ ${prompt}`),
       ServiceMap.add(TaskCompleteDeferred, deferred),
     )
 
-    if (provider !== "openai") {
+    if (!modelConfig.systemPromptTransform) {
       prompt = Prompt.setSystem(prompt, system)
     }
 
@@ -261,16 +250,20 @@ ${prompt}`),
       while (true) {
         if (currentScript.length > 0) {
           maybeSend(agentId, new ScriptStart({ script: currentScript }))
-          const result = yield* pipe(
+          let result = yield* pipe(
             executor.execute({
               tools,
               script: currentScript,
             }),
             Stream.mkString,
           )
+          result = result.trim()
           maybeSend(agentId, new ScriptEnd({ output: result }))
           prompt = Prompt.concat(prompt, [
-            { role: "assistant", content: `Javascript output:\n\n${result}` },
+            {
+              role: modelConfig.supportsAssistantPrefill ? "assistant" : "user",
+              content: `Javascript output:\n\n${result}`,
+            },
           ])
           currentScript = ""
         }
@@ -354,7 +347,9 @@ ${prompt}`),
               return err.isRetryable
             },
           }),
-          provider === "openai" ? withSystemPrompt : identity,
+          modelConfig.systemPromptTransform
+            ? (effect) => modelConfig.systemPromptTransform!(system, effect)
+            : identity,
         )
         prompt = Prompt.concat(prompt, Prompt.fromResponseParts(response))
         currentScript = currentScript.trim()
@@ -362,6 +357,7 @@ ${prompt}`),
     }).pipe(
       Effect.provideServices(taskServices),
       Effect.provideServices(services),
+      Effect.catchCause((cause) => Queue.failCause(output, cause)),
       Effect.forkScoped,
     )
 
@@ -392,9 +388,8 @@ const generateSystem = Effect.fn(function* (tools: Toolkit.Toolkit<any>) {
 
   return `You are a professional software engineer. You are precise, thoughtful and concise. You make changes with care and always do the due diligence to ensure the best possible outcome. You make no mistakes.
 
-To do your job, only respond with javascript code that will be executed for you.
+From now on only respond with javascript code that will be executed for you.
 
-- Do not add any markdown formatting, just code.
 - Use \`console.log\` to print any output you need.
 - Top level await is supported.
 - **Prefer using the functions provided** over the bash tool
@@ -439,6 +434,35 @@ Javascript output:
 - Use the "subagent" tool to delegate large tasks / exploration. Run multiple subagents in parallel with Promise.all
 `
 })
+
+/**
+ * @since 1.0.0
+ * @category System prompts
+ */
+export class AgentModelConfig extends ServiceMap.Reference<{
+  readonly systemPromptTransform?: <A, E, R>(
+    system: string,
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>
+  readonly supportsAssistantPrefill?: boolean | undefined
+}>("clanka/Agent/SystemPromptTransform", {
+  defaultValue: () => ({}),
+}) {
+  static readonly layer = (options: typeof AgentModelConfig.Service) =>
+    Layer.succeed(AgentModelConfig, options)
+}
+
+/**
+ * A layer that provides most of the common services needed to run an agent.
+ *
+ * @since 1.0.0
+ * @category Services
+ */
+export const layerServices: Layer.Layer<
+  Tool.HandlersFor<typeof AgentTools.tools> | Executor | ToolkitRenderer,
+  never,
+  FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+> = Layer.mergeAll(AgentToolHandlers, Executor.layer, ToolkitRenderer.layer)
 
 /**
  * @since 1.0.0

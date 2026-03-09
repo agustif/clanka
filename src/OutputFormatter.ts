@@ -4,14 +4,15 @@
 import { Stream } from "effect"
 import { type Output, AgentFinished } from "./Agent.ts"
 import chalk from "chalk"
+import type { AiError } from "effect/unstable/ai"
 
 /**
  * @since 1.0.0
  * @category Models
  */
 export type OutputFormatter<E = never, R = never> = (
-  stream: Stream.Stream<Output, AgentFinished>,
-) => Stream.Stream<string, E, R>
+  stream: Stream.Stream<Output, AgentFinished | AiError.AiError>,
+) => Stream.Stream<string, AiError.AiError | E, R>
 
 /**
  * @since 1.0.0
@@ -60,7 +61,7 @@ ${output.summary}\n\n`
         }
       }
     }),
-    Stream.catch((finished) =>
+    Stream.catchTag("AgentFinished", (finished) =>
       Stream.succeed(
         `\n${chalk.bold.green(`${doneIcon} Task complete:`)}\n\n${finished.summary}`,
       ),

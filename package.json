@@ -36,14 +36,14 @@
   },
   "peerDependencies": {
     "@effect/ai-openai": "4.0.0-beta.29",
-    "@effect/ai-openai-compat": "4.0.0-beta.0",
+    "@effect/ai-openai-compat": "4.0.0-beta.29",
     "effect": "4.0.0-beta.29"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
     "@effect/ai-openai": "https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15",
-    "@effect/ai-openai-compat": "4.0.0-beta.0",
+    "@effect/ai-openai-compat": "4.0.0-beta.29",
     "@effect/language-service": "^0.75.1",
     "@effect/platform-node": "4.0.0-beta.29",
     "@effect/vitest": "4.0.0-beta.29",

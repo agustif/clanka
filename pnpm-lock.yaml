@@ -28,8 +28,8 @@ importers:
         specifier: https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15
         version: https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15(effect@4.0.0-beta.29)
       '@effect/ai-openai-compat':
-        specifier: 4.0.0-beta.0
-        version: 4.0.0-beta.0(effect@4.0.0-beta.29)
+        specifier: 4.0.0-beta.29
+        version: 4.0.0-beta.29(effect@4.0.0-beta.29)
       '@effect/language-service':
         specifier: ^0.75.1
         version: 0.75.1
@@ -137,10 +137,10 @@ packages:
   '@changesets/write@0.4.0':
     resolution: {integrity: sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q==}
 
-  '@effect/ai-openai-compat@4.0.0-beta.0':
-    resolution: {integrity: sha512-WfJwezDNO3nFQA0KjMu6jKlg4RItOFHzIxfBT1Vej+vSpg1amG5t6y5dmQnwQvAWTT7NT8kBlm7MmEJi+YnQvQ==}
+  '@effect/ai-openai-compat@4.0.0-beta.29':
+    resolution: {integrity: sha512-7zsY7EmqMwpZyP4XeA2lSGP0YbL3x5plX5ozlF9mRaXSkR6sJdQqyV3yYRRZOM866eqG+Yc8S+f0GV+pnIEMuw==}
     peerDependencies:
-      effect: ^4.0.0-beta.0
+      effect: ^4.0.0-beta.29
 
   '@effect/ai-openai@https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15':
     resolution: {integrity: sha512-Tad3KVElYuxEW4riJt0TtZeMSmsE2mL+DpaJF4LeDBRJAJPm4D6zZNqTmAF3bJnVpYKm0N2lNRTP52u7LPzk1g==, tarball: https://pkg.pr.new/Effect-TS/effect-smol/@effect/ai-openai@f732f15}
@@ -1670,7 +1670,7 @@ snapshots:
       human-id: 4.1.3
       prettier: 2.8.8
 
-  '@effect/ai-openai-compat@4.0.0-beta.0(effect@4.0.0-beta.29)':
+  '@effect/ai-openai-compat@4.0.0-beta.29(effect@4.0.0-beta.29)':
     dependencies:
       effect: 4.0.0-beta.29
 
