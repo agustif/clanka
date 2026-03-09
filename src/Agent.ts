@@ -137,24 +137,41 @@ ${agentsMd.value}
     instructions: system,
   })
 
-  let subagentId = 0
+  let agentCounter = 0
+
+  const reasoningState = new Map<
+    number,
+    {
+      buffer: string
+      ended: boolean
+    }
+  >()
+  let currentReasoningAgent: number | null = null
 
   const spawn: (
+    agentId: number,
     prompt: Prompt.Prompt,
   ) => Stream.Stream<
     Output,
     AgentFinished,
     LanguageModel.LanguageModel | ProviderName
-  > = Effect.fnUntraced(function* (prompt) {
+  > = Effect.fnUntraced(function* (agentId, prompt) {
     const ai = yield* LanguageModel.LanguageModel
     const provider = yield* ProviderName
     const deferred = yield* Deferred.make<string>()
     const output = yield* Queue.make<Output, AgentFinished>()
 
+    function bufferReasoningDelta(agentId: number, delta: string) {
+      const state = reasoningState.get(agentId) ?? { buffer: "", ended: false }
+      state.buffer += delta
+      reasoningState.set(agentId, state)
+    }
+
     const taskServices = SubagentContext.serviceMap({
       spawn: ({ prompt }) => {
-        let id = ++subagentId
+        let id = agentCounter++
         const stream = spawn(
+          id,
           Prompt.make(`You have been spawned using "subagent" to complete the following task:
 
 ${prompt}`),
@@ -258,8 +275,17 @@ ${prompt}`),
                   break
                 case "reasoning-delta":
                   hadReasoningDelta = true
+                  if (
+                    currentReasoningAgent !== null &&
+                    currentReasoningAgent !== agentId
+                  ) {
+                    reasoningStarted = false
+                    bufferReasoningDelta(agentId, part.delta)
+                    break
+                  }
                   if (reasoningStarted) {
                     reasoningStarted = false
+                    currentReasoningAgent = agentId
                     Queue.offerUnsafe(output, new ReasoningStart())
                   }
                   Queue.offerUnsafe(
@@ -269,9 +295,53 @@ ${prompt}`),
                   break
                 case "reasoning-end":
                   reasoningStarted = false
+                  if (
+                    currentReasoningAgent !== null &&
+                    currentReasoningAgent !== agentId
+                  ) {
+                    reasoningStarted = false
+                    const state = reasoningState.get(agentId)!
+                    state.ended = true
+                    break
+                  }
                   if (hadReasoningDelta) {
                     hadReasoningDelta = false
                     Queue.offerUnsafe(output, new ReasoningEnd())
+                  }
+                  currentReasoningAgent = null
+                  for (const [id, state] of reasoningState) {
+                    reasoningState.delete(id)
+                    Queue.offerUnsafe(
+                      output,
+                      id > 0
+                        ? new SubagentPart({
+                            id,
+                            part: new ReasoningStart(),
+                          })
+                        : new ReasoningStart(),
+                    )
+                    Queue.offerUnsafe(
+                      output,
+                      id > 0
+                        ? new SubagentPart({
+                            id,
+                            part: new ReasoningDelta({ delta: state.buffer }),
+                          })
+                        : new ReasoningDelta({ delta: state.buffer }),
+                    )
+                    if (!state.ended) {
+                      currentReasoningAgent = id
+                      break
+                    }
+                    Queue.offerUnsafe(
+                      output,
+                      id > 0
+                        ? new SubagentPart({
+                            id,
+                            part: new ReasoningEnd(),
+                          })
+                        : new ReasoningEnd(),
+                    )
                   }
                   break
                 case "finish":
@@ -301,7 +371,7 @@ ${prompt}`),
     return Stream.fromQueue(output)
   }, Stream.unwrap)
 
-  const output = yield* spawn(Prompt.make(options.prompt)).pipe(
+  const output = yield* spawn(agentCounter++, Prompt.make(options.prompt)).pipe(
     Stream.broadcast({
       capacity: "unbounded",
     }),
@@ -317,18 +387,16 @@ ${prompt}`),
 const generateSystem = Effect.fn(function* (tools: Toolkit.Toolkit<any>) {
   const renderer = yield* ToolkitRenderer
 
-  return `# Who you are
+  return `You are a professional software engineer. You are precise, thoughtful and concise. You make changes with care and always do the due diligence to ensure the best possible outcome. You make no mistakes.
 
-You are a professional software engineer. You are precise, thoughtful and concise. You make changes with care and always do the due diligence to ensure the best possible outcome. You make no mistakes.
-
-# Completing the task
-
-To complete the task respond with javascript code that will be executed for you.
+To do your job, only respond with javascript code that will be executed for you.
 
 - Do not add any markdown formatting, just code.
 - Use \`console.log\` to print any output you need.
 - Top level await is supported.
 - **Prefer using the functions provided** over the bash tool
+
+**When you have completed your task**, call the "taskComplete" function with the final output.
 
 You have the following functions available to you:
 
@@ -366,7 +434,6 @@ Javascript output:
 - Use the current state of the codebase to inform your decisions. Don't look at git history unless explicity asked to.
 - Only add comments when necessary.
 - Use the "subagent" tool to delegate large tasks / exploration. Run multiple subagents in parallel with Promise.all
-- When you have fully completed the task, call the "taskComplete" function
 `
 })
 

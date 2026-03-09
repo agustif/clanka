@@ -29,12 +29,12 @@ export const pretty: OutputFormatter = (stream) =>
         case "SubagentStart": {
           return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} starting (${output.modelAndProvider})`)}
 
-${chalk.dim(output.prompt)}\n`
+${chalk.dim(output.prompt)}\n\n`
         }
         case "SubagentComplete": {
           return `${chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} complete`)}
 
-${output.summary}\n`
+${output.summary}\n\n`
         }
         case "ReasoningStart": {
           return (

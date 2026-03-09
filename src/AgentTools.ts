@@ -179,9 +179,9 @@ export const AgentTools = Toolkit.make(
   }),
   Tool.make("taskComplete", {
     description:
-      "Only call this when you have fully completed the user's task. Provide a markdown summary of the work you have done.",
+      "Call this to send a final output message and end the current task.",
     parameters: Schema.String.annotate({
-      identifier: "summary",
+      identifier: "output",
     }),
     dependencies: [TaskCompleteDeferred],
   }),

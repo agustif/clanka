@@ -96,7 +96,6 @@ ${options.script}
           }
         }).pipe(
           Effect.ensuring(Scope.close(handlerScope, Exit.void)),
-          Effect.timeout("3 minutes"),
           Effect.catchCause(Effect.logFatal),
           Effect.provideService(Console.Console, console),
           Effect.ensuring(Queue.end(output)),
