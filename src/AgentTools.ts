@@ -488,9 +488,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
         return `Success. Updated the following files:\n${out.join("\n")}`
       }, Effect.orDie),
       subagent: Effect.fn("AgentTools.subagent")(function* (prompt) {
-        yield* Effect.logInfo(`Calling "subagent"`).pipe(
-          Effect.annotateLogs({ prompt }),
-        )
+        yield* Effect.logInfo(`Calling "subagent"`)
         const context = yield* SubagentContext
         return yield* context.spawn({ prompt })
       }, Effect.orDie),

@@ -28,7 +28,7 @@ import {
 } from "./AgentTools.ts"
 import { Executor } from "./Executor.ts"
 import { ToolkitRenderer } from "./ToolkitRenderer.ts"
-import { ProviderName } from "effect/unstable/ai/Model"
+import { ModelName, ProviderName } from "effect/unstable/ai/Model"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 import { type StreamPart } from "effect/unstable/ai/Response"
 import type { ChildProcessSpawner } from "effect/unstable/process"
@@ -59,7 +59,11 @@ export const layerServices: Layer.Layer<
  * @since 1.0.0
  * @category Constructors
  */
-export const make: <Tools extends Record<string, Tool.Any> = {}>(options: {
+export const make: <
+  Tools extends Record<string, Tool.Any> = {},
+  SE = never,
+  SR = never,
+>(options: {
   /** The working directory to run the agent in */
   readonly directory: string
   /** The prompt to use for the agent */
@@ -68,6 +72,10 @@ export const make: <Tools extends Record<string, Tool.Any> = {}>(options: {
   readonly system?: string | undefined
   /** Additional tools to provide to the agent */
   readonly tools?: Toolkit.Toolkit<Tools> | undefined
+  /** Layer to use for subagents */
+  readonly subagentModel?:
+    | Layer.Layer<LanguageModel.LanguageModel | ProviderName, SE, SR>
+    | undefined
 }) => Effect.Effect<
   Agent,
   never,
@@ -77,28 +85,32 @@ export const make: <Tools extends Record<string, Tool.Any> = {}>(options: {
   | Executor
   | LanguageModel.LanguageModel
   | ProviderName
+  | ModelName
   | ToolkitRenderer
   | Tool.HandlersFor<Tools>
   | Tool.HandlersFor<typeof AgentTools.tools>
   | Tool.HandlerServices<Tools[keyof Tools]>
+  | SR
 > = Effect.fnUntraced(function* (options: {
-  /** The working directory to run the agent in */
   readonly directory: string
-  /** The prompt to use for the agent */
   readonly prompt: Prompt.RawInput
-  /** Additional system instructions to provide to the agent */
   readonly system?: string | undefined
-  /** Additional tools to provide to the agent */
   readonly tools?: Toolkit.Toolkit<{}> | undefined
+  readonly subagentModel?:
+    | Layer.Layer<LanguageModel.LanguageModel | ProviderName | ModelName>
+    | undefined
 }) {
-  const ai = yield* LanguageModel.LanguageModel
-  const provider = yield* ProviderName
   const fs = yield* FileSystem.FileSystem
   const pathService = yield* Path.Path
   const executor = yield* Executor
   const allTools = Toolkit.merge(AgentTools, options.tools ?? Toolkit.empty)
   const tools = yield* allTools
-  const services = yield* Effect.services<Tool.HandlerServices<{}>>()
+  const services = yield* Effect.services<
+    | Tool.HandlerServices<{}>
+    | LanguageModel.LanguageModel
+    | ProviderName
+    | ModelName
+  >()
 
   let system = yield* generateSystem(allTools)
   if (options.system) {
@@ -116,131 +128,148 @@ export const make: <Tools extends Record<string, Tool.Any> = {}>(options: {
 
   let subagentId = 0
 
-  const spawn: (prompt: Prompt.Prompt) => Stream.Stream<Output, AgentFinished> =
-    Effect.fnUntraced(function* (prompt) {
-      const deferred = yield* Deferred.make<string>()
-      const output = yield* Queue.make<Output, AgentFinished>()
+  const spawn: (
+    prompt: Prompt.Prompt,
+  ) => Stream.Stream<
+    Output,
+    AgentFinished,
+    LanguageModel.LanguageModel | ProviderName
+  > = Effect.fnUntraced(function* (prompt) {
+    const ai = yield* LanguageModel.LanguageModel
+    const provider = yield* ProviderName
+    const deferred = yield* Deferred.make<string>()
+    const output = yield* Queue.make<Output, AgentFinished>()
 
-      const taskServices = SubagentContext.serviceMap({
-        spawn: ({ prompt }) => {
-          let id = ++subagentId
-          return spawn(Prompt.make(prompt)).pipe(
-            Stream.broadcast({
-              capacity: "unbounded",
-            }),
-            Effect.flatMap((stream) => {
+    const taskServices = SubagentContext.serviceMap({
+      spawn: ({ prompt }) => {
+        let id = ++subagentId
+        return spawn(Prompt.make(prompt)).pipe(
+          Stream.broadcast({
+            capacity: "unbounded",
+          }),
+          Effect.flatMap(
+            Effect.fnUntraced(function* (stream) {
+              const provider = yield* ProviderName
+              const model = yield* ModelName
               Queue.offerUnsafe(
                 output,
-                new SubagentPart({ id, prompt, output: stream }),
+                new SubagentPart({
+                  id,
+                  prompt,
+                  provider,
+                  model,
+                  output: stream,
+                }),
               )
-              return Stream.runDrain(stream)
+              return yield* Stream.runDrain(stream)
             }),
-            Effect.scoped,
-            Effect.as(""),
-            Effect.catch((e) => Effect.succeed(e.summary)),
-          )
-        },
-      }).pipe(
-        ServiceMap.add(CurrentDirectory, options.directory),
-        ServiceMap.add(TaskCompleteDeferred, deferred),
-      )
+          ),
+          Effect.scoped,
+          Effect.as(""),
+          Effect.catch((e) => Effect.succeed(e.summary)),
+          options.subagentModel
+            ? Effect.provide(Layer.orDie(options.subagentModel))
+            : Effect.provideServices(services),
+        )
+      },
+    }).pipe(
+      ServiceMap.add(CurrentDirectory, options.directory),
+      ServiceMap.add(TaskCompleteDeferred, deferred),
+    )
 
-      prompt = Prompt.concat(
-        prompt,
-        agentsMd.pipe(
-          Option.map((md) =>
-            Prompt.make(`Here is a copy of ./AGENTS.md. ALWAYS follow these instructions when completing the above task:
+    prompt = Prompt.concat(
+      prompt,
+      agentsMd.pipe(
+        Option.map((md) =>
+          Prompt.make(`Here is a copy of ./AGENTS.md. ALWAYS follow these instructions when completing the above task:
 
 ${md}`),
-          ),
-          Option.getOrElse(() => Prompt.empty),
         ),
-      )
+        Option.getOrElse(() => Prompt.empty),
+      ),
+    )
 
-      if (provider !== "openai") {
-        prompt = Prompt.setSystem(prompt, system)
-      }
+    if (provider !== "openai") {
+      prompt = Prompt.setSystem(prompt, system)
+    }
 
-      let currentScript = ""
-      yield* Effect.gen(function* () {
-        while (true) {
-          if (currentScript.length > 0) {
-            Queue.offerUnsafe(
-              output,
-              new ScriptStart({ script: currentScript }),
-            )
-            const result = yield* pipe(
-              executor.execute({
-                tools,
-                script: currentScript,
-              }),
-              Stream.mkString,
-            )
-            Queue.offerUnsafe(output, new ScriptEnd({ output: result }))
-            prompt = Prompt.concat(prompt, `Javascript output:\n\n${result}`)
-            currentScript = ""
-          }
-
-          if (Deferred.isDoneUnsafe(deferred)) {
-            yield* Queue.fail(
-              output,
-              new AgentFinished({ summary: yield* Deferred.await(deferred) }),
-            )
-            return
-          }
-
-          let response = Array.empty<StreamPart<{}>>()
-          yield* pipe(
-            ai.streamText({ prompt }),
-            Stream.takeUntil((part) => part.type === "text-end"),
-            Stream.runForEachArray((parts) => {
-              response.push(...parts)
-              for (const part of parts) {
-                switch (part.type) {
-                  case "text-start":
-                    currentScript = ""
-                    break
-                  case "text-delta":
-                    currentScript += part.delta
-                    break
-                  case "reasoning-start":
-                    Queue.offerUnsafe(output, new ReasoningStart())
-                    break
-                  case "reasoning-delta":
-                    Queue.offerUnsafe(
-                      output,
-                      new ReasoningDelta({ delta: part.delta }),
-                    )
-                    break
-                  case "reasoning-end":
-                    Queue.offerUnsafe(output, new ReasoningEnd())
-                    break
-                  case "finish":
-                    // console.log("Tokens used:", part.usage, "\n")
-                    break
-                }
-              }
-              return Effect.void
+    let currentScript = ""
+    yield* Effect.gen(function* () {
+      while (true) {
+        if (currentScript.length > 0) {
+          Queue.offerUnsafe(output, new ScriptStart({ script: currentScript }))
+          const result = yield* pipe(
+            executor.execute({
+              tools,
+              script: currentScript,
             }),
-            Effect.retry({
-              while: (err) => {
-                response = []
-                return err.isRetryable
-              },
-            }),
-            provider === "openai" ? withSystemPrompt : identity,
+            Stream.mkString,
           )
-          prompt = Prompt.concat(prompt, Prompt.fromResponseParts(response))
-          currentScript = currentScript.trim()
+          Queue.offerUnsafe(output, new ScriptEnd({ output: result }))
+          prompt = Prompt.concat(prompt, `Javascript output:\n\n${result}`)
+          currentScript = ""
         }
-      }).pipe(
-        Effect.provideServices(taskServices),
-        Effect.provideServices(services),
-        Effect.forkScoped,
-      )
 
-      return Stream.fromQueue(output)
-    }, Stream.unwrap)
+        if (Deferred.isDoneUnsafe(deferred)) {
+          yield* Queue.fail(
+            output,
+            new AgentFinished({ summary: yield* Deferred.await(deferred) }),
+          )
+          return
+        }
+
+        let response = Array.empty<StreamPart<{}>>()
+        yield* pipe(
+          ai.streamText({ prompt }),
+          Stream.takeUntil((part) => part.type === "text-end"),
+          Stream.runForEachArray((parts) => {
+            response.push(...parts)
+            for (const part of parts) {
+              switch (part.type) {
+                case "text-start":
+                  currentScript = ""
+                  break
+                case "text-delta":
+                  currentScript += part.delta
+                  break
+                case "reasoning-start":
+                  Queue.offerUnsafe(output, new ReasoningStart())
+                  break
+                case "reasoning-delta":
+                  Queue.offerUnsafe(
+                    output,
+                    new ReasoningDelta({ delta: part.delta }),
+                  )
+                  break
+                case "reasoning-end":
+                  Queue.offerUnsafe(output, new ReasoningEnd())
+                  break
+                case "finish":
+                  // console.log("Tokens used:", part.usage, "\n")
+                  break
+              }
+            }
+            return Effect.void
+          }),
+          Effect.retry({
+            while: (err) => {
+              response = []
+              return err.isRetryable
+            },
+          }),
+          provider === "openai" ? withSystemPrompt : identity,
+        )
+        prompt = Prompt.concat(prompt, Prompt.fromResponseParts(response))
+        currentScript = currentScript.trim()
+      }
+    }).pipe(
+      Effect.provideServices(taskServices),
+      Effect.provideServices(services),
+      Effect.forkScoped,
+    )
+
+    return Stream.fromQueue(output)
+  }, Stream.unwrap)
 
   const output = yield* spawn(Prompt.make(options.prompt)).pipe(
     Stream.broadcast({
@@ -395,8 +424,14 @@ export type OutputPart = typeof OutputPart.Type
 export class SubagentPart extends Data.TaggedError("SubagentPart")<{
   id: number
   prompt: string
+  model: string
+  provider: string
   output: Stream.Stream<Output, AgentFinished>
-}> {}
+}> {
+  get modelAndProvider() {
+    return `${this.provider}/${this.model}`
+  }
+}
 
 /**
  * @since 1.0.0

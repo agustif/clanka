@@ -29,7 +29,9 @@ const prettyPart = (output: Output, prefix = ""): Effect.Effect<void> => {
   switch (output._tag) {
     case "SubagentPart": {
       console.log(
-        chalkSubagentHeading(`${subagentIcon} Subagent #${output.id} starting`),
+        chalkSubagentHeading(
+          `${subagentIcon} Subagent #${output.id} starting (${output.modelAndProvider})`,
+        ),
       )
       console.log("")
       console.log(chalk.dim(output.prompt))
