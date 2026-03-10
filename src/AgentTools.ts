@@ -179,7 +179,7 @@ export const AgentTools = Toolkit.make(
   }),
   Tool.make("taskComplete", {
     description:
-      "Call this to send a final output message and end the current task.",
+      "Only call this when the task is fully complete and you have a final output message to send.",
     parameters: Schema.String.annotate({
       identifier: "output",
     }),
