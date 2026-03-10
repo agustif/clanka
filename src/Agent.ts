@@ -200,7 +200,7 @@ ${agentsMd.value}
         let id = agentCounter++
         const stream = spawn(
           id,
-          Prompt.make(`You have been spawned using "subagent" to complete the following task:
+          Prompt.make(`You have been asked using "delegate" to complete the following task:
 
 ${prompt}`),
         )
@@ -481,13 +481,13 @@ Javascript output:
 
 - Use the current state of the codebase to inform your decisions. Don't look at git history unless explicity asked to.
 - Only add comments when necessary.
-- Use the "subagent" tool to delegate large tasks / exploration. Run multiple subagents in parallel with Promise.all
+- Make use of the "delegate" tool to delegate work, exploration and small research tasks. You can delegate multiple tasks in parallel with Promise.all
 `
 }
 
 // oxlint-disable-next-line typescript/no-explicit-any
 const generateSystemMulti = (toolsDts: string) => {
-  return `From now on only respond with javascript code that will be executed for you.
+  return `Respond with plain javascript code (no typescript) that will be executed for you.
 
 - Use \`console.log\` to print any output you need.
 - Top level await is supported.

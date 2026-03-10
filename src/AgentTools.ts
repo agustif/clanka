@@ -162,11 +162,11 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [CurrentDirectory],
   }),
-  Tool.make("subagent", {
+  Tool.make("delegate", {
     description:
-      "Prompt another agent with the same tools to assist with a subtask. The subagent will return a markdown summary of the work it did.",
+      "Delegate a task to another software engineer. Returns the result of the task.",
     parameters: Schema.String.annotate({
-      identifier: "prompt",
+      identifier: "task",
     }),
     success: Schema.String,
     dependencies: [SubagentContext],
@@ -486,8 +486,8 @@ export const AgentToolHandlers = AgentTools.toLayer(
 
         return `Success. Updated the following files:\n${out.join("\n")}`
       }, Effect.orDie),
-      subagent: Effect.fn("AgentTools.subagent")(function* (prompt) {
-        yield* Effect.logInfo(`Calling "subagent"`)
+      delegate: Effect.fn("AgentTools.delegate")(function* (prompt) {
+        yield* Effect.logInfo(`Calling "delegate"`)
         const context = yield* SubagentContext
         return yield* context.spawn({ prompt })
       }, Effect.orDie),
