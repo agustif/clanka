@@ -543,7 +543,7 @@ const generateSystemMulti = (toolsDts: string) => {
 
 - Use \`console.log\` to print any output you need.
 - Top level await is supported.
-- **Prefer using the functions provided** over the bash tool
+- AVOID passing scripts into the "bash" function, and instead write javascript.
 
 **When you have fully completed your task**, call the "taskComplete" function with the final output.
 Make sure every detail of the task is done before calling "taskComplete".
@@ -563,7 +563,7 @@ const generateSystemSingle = (toolsDts: string) => {
 
 - Use \`console.log\` to print any output you need.
 - Top level await is supported.
-- **Prefer using the functions provided** over the bash tool
+- AVOID passing scripts into the "bash" function, and instead write javascript.
 
 You have the following functions available to you:
 
