@@ -37,7 +37,7 @@ describe("AgentTools", () => {
       expect(output).toContain("readonly startLine?: number | undefined;")
       expect(output).toContain("readonly endLine?: number | undefined;")
       expect(output).toContain(
-        "/** Apply a git diff / unified diff patch across one or more files. */",
+        "/** Apply a git diff / unified diff patch, or a wrapped apply_patch patch, across one or more files. */",
       )
       expect(output).toContain(
         "declare function applyPatch(patch: string): Promise<string>",
@@ -181,6 +181,61 @@ describe("AgentTools", () => {
       expect(yield* fs.readFileString(join(tempRoot, "src", "main.txt"))).toBe(
         "newer\n",
       )
+      yield* Effect.flip(fs.readFileString(join(tempRoot, "src", "app.txt")))
+    }).pipe(
+      Effect.provide([
+        AgentToolHandlers,
+        Executor.layer,
+        ToolkitRenderer.layer,
+      ]),
+      Effect.provide(NodeServices.layer),
+    ),
+  )
+
+  it.effect("applies wrapped apply_patch patches", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const tempRoot = yield* makeTempRoot("clanka-apply-patch-wrapped-")
+      yield* fs.makeDirectory(join(tempRoot, "src"), { recursive: true })
+      yield* fs.writeFileString(join(tempRoot, "src", "app.txt"), "old\n")
+      yield* fs.writeFileString(join(tempRoot, "obsolete.txt"), "remove me\n")
+
+      const executor = yield* Executor
+      const tools = yield* AgentTools
+      const output = yield* executor
+        .execute({
+          tools,
+          script: [
+            "const output = await applyPatch(`",
+            "*** Begin Patch",
+            "*** Update File: src/app.txt",
+            "*** Move to: src/main.txt",
+            "@@",
+            "-old",
+            "+new",
+            "*** Delete File: obsolete.txt",
+            "*** Add File: notes/hello.txt",
+            "+hello",
+            "*** End Patch",
+            "`)",
+            "console.log(output)",
+          ].join("\n"),
+        })
+        .pipe(
+          Stream.mkString,
+          Effect.provideServices(makeContextNoop(tempRoot)),
+        )
+
+      expect(output).toContain("A notes/hello.txt")
+      expect(output).toContain("M src/main.txt")
+      expect(output).toContain("D obsolete.txt")
+      expect(
+        yield* fs.readFileString(join(tempRoot, "notes", "hello.txt")),
+      ).toBe("hello\n")
+      expect(yield* fs.readFileString(join(tempRoot, "src", "main.txt"))).toBe(
+        "new\n",
+      )
+      yield* Effect.flip(fs.readFileString(join(tempRoot, "obsolete.txt")))
       yield* Effect.flip(fs.readFileString(join(tempRoot, "src", "app.txt")))
     }).pipe(
       Effect.provide([
