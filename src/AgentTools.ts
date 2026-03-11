@@ -7,6 +7,7 @@ import {
   Deferred,
   Effect,
   FileSystem,
+  Layer,
   Path,
   pipe,
   Schema,
@@ -17,6 +18,7 @@ import { Tool, Toolkit } from "effect/unstable/ai"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as Glob from "glob"
 import { parsePatch, patchChunks } from "./ApplyPatch.ts"
+import { MockSearch } from "./MockSearch.ts"
 
 /**
  * @since 1.0.0
@@ -58,6 +60,12 @@ export const makeContextNoop = (cwd?: string) =>
     ServiceMap.add(CurrentDirectory, cwd ?? "/"),
     ServiceMap.add(TaskCompleteDeferred, Deferred.makeUnsafe()),
   )
+
+const WebSearchResult = Schema.Struct({
+  title: Schema.String,
+  url: Schema.String,
+  snippet: Schema.String,
+})
 
 /**
  * @since 1.0.0
@@ -175,6 +183,13 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [SubagentContext],
   }),
+  Tool.make("webSearch", {
+    description: "Search the web for recent information.",
+    parameters: Schema.String.annotate({
+      identifier: "query",
+    }),
+    success: Schema.Array(WebSearchResult),
+  }),
   Tool.make("sleep", {
     description: "Sleep for a specified number of milliseconds",
     parameters: Schema.Finite.annotate({
@@ -200,6 +215,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const fs = yield* FileSystem.FileSystem
     const pathService = yield* Path.Path
+    const webSearch = yield* MockSearch
 
     const execute = Effect.fn(function* (command: ChildProcess.Command) {
       const handle = yield* spawner.spawn(command)
@@ -356,6 +372,12 @@ export const AgentToolHandlers = AgentTools.toLayer(
         })
         return yield* execute(cmd)
       }, Effect.orDie),
+      webSearch: Effect.fn("AgentTools.webSearch")(function* (query) {
+        yield* Effect.logInfo(`Calling "webSearch"`).pipe(
+          Effect.annotateLogs({ query }),
+        )
+        return yield* webSearch.search(query)
+      }),
       sleep: Effect.fn("AgentTools.sleep")(function* (ms) {
         yield* Effect.logInfo(`Calling "sleep" for ${ms}ms`)
         return yield* Effect.sleep(ms)
@@ -505,7 +527,7 @@ export const AgentToolHandlers = AgentTools.toLayer(
       }),
     })
   }),
-)
+).pipe(Layer.provide(Layer.mock(MockSearch)({})))
 
 class ApplyPatchError extends Data.TaggedClass("ApplyPatchError")<{
   readonly message: string
