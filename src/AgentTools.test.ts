@@ -247,6 +247,175 @@ describe("AgentTools", () => {
     ),
   )
 
+  it.effect(
+    "applies larger wrapped apply_patch patches across multiple files",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const tempRoot = yield* makeTempRoot(
+          "clanka-apply-patch-wrapped-large-",
+        )
+        yield* fs.makeDirectory(join(tempRoot, "src"), { recursive: true })
+        yield* fs.makeDirectory(join(tempRoot, "docs"), { recursive: true })
+        yield* fs.writeFileString(
+          join(tempRoot, "src", "app.txt"),
+          "alpha\nbeta\n",
+        )
+        yield* fs.writeFileString(
+          join(tempRoot, "src", "config.json"),
+          '{"enabled":false}\n',
+        )
+        yield* fs.writeFileString(join(tempRoot, "docs", "old.md"), "legacy\n")
+        yield* fs.writeFileString(
+          join(tempRoot, "README.md"),
+          "# Title\nOld intro\n",
+        )
+
+        const executor = yield* Executor
+        const tools = yield* AgentTools
+        const output = yield* executor
+          .execute({
+            tools,
+            script: [
+              "const output = await applyPatch(`",
+              "*** Begin Patch",
+              "",
+              "*** Update File: src/app.txt",
+              "*** Move to: src/main.txt",
+              "@@",
+              " alpha",
+              "-beta",
+              "+gamma",
+              "",
+              "*** Update File: src/config.json",
+              "@@",
+              '-{"enabled":false}',
+              '+{"enabled":true}',
+              "",
+              "*** Update File: README.md",
+              "@@",
+              " # Title",
+              "-Old intro",
+              "+New intro",
+              "+More details",
+              "",
+              "*** Delete File: docs/old.md",
+              "",
+              "*** Add File: docs/new.md",
+              "+# Docs",
+              "+",
+              "+Updated",
+              "",
+              "*** Add File: notes/todo.txt",
+              "+one",
+              "+two",
+              "*** End Patch",
+              "`)",
+              "console.log(output)",
+            ].join("\n"),
+          })
+          .pipe(
+            Stream.mkString,
+            Effect.provideServices(makeContextNoop(tempRoot)),
+          )
+
+        expect(output).toContain("M src/main.txt")
+        expect(output).toContain("M src/config.json")
+        expect(output).toContain("M README.md")
+        expect(output).toContain("D docs/old.md")
+        expect(output).toContain("A docs/new.md")
+        expect(output).toContain("A notes/todo.txt")
+        expect(
+          yield* fs.readFileString(join(tempRoot, "src", "main.txt")),
+        ).toBe("alpha\ngamma\n")
+        expect(
+          yield* fs.readFileString(join(tempRoot, "src", "config.json")),
+        ).toBe('{"enabled":true}\n')
+        expect(yield* fs.readFileString(join(tempRoot, "README.md"))).toBe(
+          "# Title\nNew intro\nMore details\n",
+        )
+        expect(yield* fs.readFileString(join(tempRoot, "docs", "new.md"))).toBe(
+          "# Docs\n\nUpdated\n",
+        )
+        expect(
+          yield* fs.readFileString(join(tempRoot, "notes", "todo.txt")),
+        ).toBe("one\ntwo\n")
+        yield* Effect.flip(fs.readFileString(join(tempRoot, "docs", "old.md")))
+        yield* Effect.flip(fs.readFileString(join(tempRoot, "src", "app.txt")))
+      }).pipe(
+        Effect.provide([
+          AgentToolHandlers,
+          Executor.layer,
+          ToolkitRenderer.layer,
+        ]),
+        Effect.provide(NodeServices.layer),
+      ),
+  )
+
+  it.effect(
+    "chains wrapped apply_patch updates through in-memory renamed state",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const tempRoot = yield* makeTempRoot(
+          "clanka-apply-patch-wrapped-state-",
+        )
+        yield* fs.makeDirectory(join(tempRoot, "src"), { recursive: true })
+        yield* fs.writeFileString(join(tempRoot, "src", "app.txt"), "old\n")
+
+        const executor = yield* Executor
+        const tools = yield* AgentTools
+        const output = yield* executor
+          .execute({
+            tools,
+            script: [
+              "const output = await applyPatch(`",
+              "*** Begin Patch",
+              "*** Update File: src/app.txt",
+              "*** Move to: src/main.txt",
+              "@@",
+              "-old",
+              "+new",
+              "*** Update File: src/main.txt",
+              "@@",
+              "-new",
+              "+newer",
+              "*** Add File: notes/hello.txt",
+              "+hello",
+              "*** Update File: notes/hello.txt",
+              "@@",
+              "-hello",
+              "+hello again",
+              "*** End Patch",
+              "`)",
+              "console.log(output)",
+            ].join("\n"),
+          })
+          .pipe(
+            Stream.mkString,
+            Effect.provideServices(makeContextNoop(tempRoot)),
+          )
+
+        expect(output).toContain("M src/main.txt")
+        expect(output).toContain("A notes/hello.txt")
+        expect(output).toContain("M notes/hello.txt")
+        expect(
+          yield* fs.readFileString(join(tempRoot, "src", "main.txt")),
+        ).toBe("newer\n")
+        expect(
+          yield* fs.readFileString(join(tempRoot, "notes", "hello.txt")),
+        ).toBe("hello again\n")
+        yield* Effect.flip(fs.readFileString(join(tempRoot, "src", "app.txt")))
+      }).pipe(
+        Effect.provide([
+          AgentToolHandlers,
+          Executor.layer,
+          ToolkitRenderer.layer,
+        ]),
+        Effect.provide(NodeServices.layer),
+      ),
+  )
+
   it.effect("renames a file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
