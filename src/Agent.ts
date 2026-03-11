@@ -230,7 +230,7 @@ ${content}
         let id = agentCounter++
         const stream = spawn(
           id,
-          Prompt.make(`You have been asked using "delegate" to complete the following task:
+          Prompt.make(`You have been asked using the "delegate" function to complete the following task. Avoid using the "delegate" function yourself unless strictly necessary:
 
 ${prompt}`),
         )

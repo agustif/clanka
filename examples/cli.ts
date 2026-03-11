@@ -20,9 +20,9 @@ const ModelServices = KeyValueStore.layerFileSystem(
   Layer.merge(NodeHttpClient.layerUndici),
 )
 
-const Gpt54 = Codex.model("gpt-5.4", {
+const Gpt54 = Codex.model("gpt-5.3-codex", {
   reasoning: {
-    effort: "medium",
+    effort: "high",
   },
 }).pipe(Layer.provide(ModelServices))
 
