@@ -298,10 +298,14 @@ export const AgentToolHandlers = AgentTools.toLayer(
         yield* Effect.logInfo(`Calling "rg"`).pipe(Effect.annotateLogs(options))
         const cwd = yield* CurrentDirectory
         const args = ["--max-filesize", "1M", "--line-number"]
+        let noIgnore = options.noIgnore ?? false
         if (options.glob) {
           args.push("--glob", options.glob)
+          if (options.noIgnore === undefined && !options.glob.startsWith("*")) {
+            noIgnore = true
+          }
         }
-        if (options.noIgnore) {
+        if (noIgnore) {
           args.push("--no-ignore")
         }
         args.push(options.pattern)
