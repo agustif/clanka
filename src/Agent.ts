@@ -63,7 +63,8 @@ export interface Agent {
  * @category Constructors
  */
 export const make: <
-  Tools extends Record<string, Tool.Any> = {},
+  // oxlint-disable-next-line typescript/no-explicit-any
+  Toolkit extends Toolkit.Toolkit<any> = never,
   SE = never,
   SR = never,
 >(options: {
@@ -83,7 +84,7 @@ export const make: <
       }) => string)
     | undefined
   /** Additional tools to provide to the agent */
-  readonly tools?: Toolkit.Toolkit<Tools> | undefined
+  readonly tools?: Toolkit | undefined
   /** Layer to use for subagents */
   readonly subagentModel?:
     | Layer.Layer<
@@ -103,9 +104,10 @@ export const make: <
   | ProviderName
   | ModelName
   | ToolkitRenderer
-  | Tool.HandlersFor<Tools>
+  | (Toolkit extends Toolkit.Toolkit<infer T>
+      ? Tool.HandlersFor<T> | Tool.HandlerServices<T[keyof T]>
+      : never)
   | Tool.HandlersFor<typeof AgentTools.tools>
-  | Tool.HandlerServices<Tools[keyof Tools]>
   | SR
 > = Effect.fnUntraced(function* (options: {
   readonly directory: string
