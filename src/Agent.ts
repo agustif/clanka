@@ -561,7 +561,7 @@ You have the following functions available to you:
 \`\`\`ts
 ${toolsDts}
 
-// The global Fetch API available for making HTTP requests.
+/** The global Fetch API available for making HTTP requests. */
 declare const fetch: typeof globalThis.fetch
 \`\`\``
 }
