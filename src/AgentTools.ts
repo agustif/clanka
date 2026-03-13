@@ -171,6 +171,15 @@ export const AgentTools = Toolkit.make(
     success: Schema.String,
     dependencies: [SubagentExecutor],
   }),
+  Tool.make("search", {
+    description:
+      "Spawn a subagent to investigate what to find in the codebase. Returns a concise report with file names, line numbers, and code snippets.",
+    parameters: Schema.String.annotate({
+      identifier: "description",
+    }),
+    success: Schema.String,
+    dependencies: [SubagentExecutor],
+  }),
   Tool.make("webSearch", {
     description: "Search the web for recent information.",
     parameters: ExaSearch.ExaSearchOptions,
@@ -516,6 +525,21 @@ export const AgentToolHandlersNoDeps = AgentTools.toLayer(
         yield* Effect.logInfo(`Calling "delegate"`)
         const spawn = yield* SubagentExecutor
         return yield* spawn(prompt)
+      }, Effect.orDie),
+      search: Effect.fn("AgentTools.search")(function* (description) {
+        yield* Effect.logInfo(`Calling "search"`)
+        const spawn = yield* SubagentExecutor
+        return yield* spawn(`You were invoked by the "search" tool to investigate the codebase.
+
+What to find:
+${description}
+
+Requirements:
+- Do not call the "search" tool from this subagent.
+- Use direct inspection tools (like rg, glob, and readFile) to gather evidence.
+- Return a concise report only.
+- Include findings with file names, line numbers, and short code snippets.
+- If nothing relevant is found, say so clearly.`)
       }, Effect.orDie),
       taskComplete: Effect.fn("AgentTools.taskComplete")(function* (message) {
         const deferred = yield* TaskCompleter
