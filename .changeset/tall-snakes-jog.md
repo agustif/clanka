@@ -1,5 +1,5 @@
 ---
-"clanka": minor
+"clanka": patch
 ---
 
 Add an optional `timeout` field to the `bash` tool parameters and change the `bash` tool input shape to `{ command, timeout? }` (with `command` as the parameter name in rendered typings).
