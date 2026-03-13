@@ -2,7 +2,7 @@
  * @since 1.0.0
  */
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
-import { Layer, Record, Struct } from "effect"
+import { Layer, Struct } from "effect"
 import { CodexAuth } from "./CodexAuth.ts"
 import { AgentModelConfig } from "./Agent.ts"
 import { Model } from "effect/unstable/ai"
