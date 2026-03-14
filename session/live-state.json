@@ -1,0 +1,103 @@
+{
+  "savedAt": "2026-03-14T03:19:49.597Z",
+  "cause": "RunComplete",
+  "state": {
+    "title": "clanka tui (mock)",
+    "cwd": "/Users/af/darkfactory/clanka",
+    "input": "",
+    "status": "complete",
+    "activeRunId": 2,
+    "nextRunId": 3,
+    "selectedEntry": 11,
+    "entries": [
+      {
+        "runId": 1,
+        "kind": "prompt",
+        "title": "Prompt #1",
+        "body": "list the workspace",
+        "id": 1
+      },
+      {
+        "runId": 1,
+        "kind": "agent",
+        "title": "Agent #0 starting",
+        "body": "mock/scripted-agent\n\nlist the workspace",
+        "id": 2
+      },
+      {
+        "runId": 1,
+        "kind": "reasoning",
+        "title": "Reasoning",
+        "body": "I should inspect the working directory with the built-in filesystem tools and then summarize what is present.",
+        "id": 3
+      },
+      {
+        "runId": 1,
+        "kind": "script",
+        "title": "Script",
+        "body": "const packageJson = await readFile({ path: \"package.json\" })\nif (packageJson !== null) {\n  const parsed = JSON.parse(packageJson)\n  console.log(`Package: ${parsed.name}@${parsed.version}`)\n}\nconst entries = await ls(\".\")\nconsole.log(entries.join(\"\\n\"))\nawait taskComplete(`Listed ${entries.length} top-level entries for \"list the workspace\".`)",
+        "id": 4
+      },
+      {
+        "runId": 1,
+        "kind": "script-output",
+        "title": "Script output",
+        "body": "[04:19:14.943] INFO (#28): Calling \"readFile\" { path: 'package.json' }\nPackage: clanka@0.1.7\n[04:19:14.947] INFO (#29): Calling \"ls\" { path: '.' }\n.husky\n.envrc\nflake.lock\n.ημ\nbin\nCHANGELOG.md\n.changeset\nspecs\n.oxlintrc.json\ntsconfig.tsbuildinfo\nnode_modules\nbun.lock\ndocs\n.prettierignore\nREADME.md\n.specs\n.prettierrc.json\n.gitignore\npackage.json\nflake.nix\nexamples\nscripts\n.github\ntsconfig.json\nAGENTS.md\n.git\nvitest.config.ts\n.repos\nsrc\nsession\n",
+        "id": 5
+      },
+      {
+        "runId": 1,
+        "kind": "summary",
+        "title": "Task complete",
+        "body": "Listed 30 top-level entries for \"list the workspace\".",
+        "id": 6
+      },
+      {
+        "runId": 2,
+        "kind": "prompt",
+        "title": "Prompt #2",
+        "body": "list the workspace",
+        "id": 7
+      },
+      {
+        "runId": 2,
+        "kind": "agent",
+        "title": "Agent #0 starting",
+        "body": "mock/scripted-agent\n\nlist the workspace",
+        "id": 8
+      },
+      {
+        "runId": 2,
+        "kind": "reasoning",
+        "title": "Reasoning",
+        "body": "I should inspect the working directory with the built-in filesystem tools and then summarize what is present.",
+        "id": 9
+      },
+      {
+        "runId": 2,
+        "kind": "script",
+        "title": "Script",
+        "body": "const packageJson = await readFile({ path: \"package.json\" })\nif (packageJson !== null) {\n  const parsed = JSON.parse(packageJson)\n  console.log(`Package: ${parsed.name}@${parsed.version}`)\n}\nconst entries = await ls(\".\")\nconsole.log(entries.join(\"\\n\"))\nawait taskComplete(`Listed ${entries.length} top-level entries for \"list the workspace\".`)",
+        "id": 10
+      },
+      {
+        "runId": 2,
+        "kind": "script-output",
+        "title": "Script output",
+        "body": "[04:19:49.588] INFO (#28): Calling \"readFile\" { path: 'package.json' }\nPackage: clanka@0.1.7\n[04:19:49.592] INFO (#29): Calling \"ls\" { path: '.' }\n.husky\n.envrc\nflake.lock\n.ημ\nbin\nCHANGELOG.md\n.changeset\nspecs\n.oxlintrc.json\ntsconfig.tsbuildinfo\nnode_modules\nbun.lock\ndocs\n.prettierignore\nREADME.md\n.specs\n.prettierrc.json\n.gitignore\npackage.json\nflake.nix\nexamples\nscripts\n.github\ntsconfig.json\nAGENTS.md\n.git\nvitest.config.ts\n.repos\nsrc\nsession\n",
+        "id": 11
+      },
+      {
+        "runId": 2,
+        "kind": "summary",
+        "title": "Task complete",
+        "body": "Listed 30 top-level entries for \"list the workspace\".",
+        "id": 12
+      }
+    ],
+    "activeModel": "scripted-agent",
+    "activeProvider": "mock",
+    "footer": "Run complete. Enter starts a follow-up prompt. Up/Down selects previous output.",
+    "currentBlock": null
+  }
+}

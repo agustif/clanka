@@ -27,6 +27,6 @@ describe("examples/tui.ts", () => {
 
     expect(output).toContain("clanka tui (mock)")
     expect(output).toContain("Task complete")
-    expect(output).toContain("OUTPUT Script output")
+    expect(output).toContain("EVIDENCE Clanka observed concrete output")
   })
 })

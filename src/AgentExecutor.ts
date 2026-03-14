@@ -44,6 +44,7 @@ import * as Result from "effect/Result"
 export class AgentExecutor extends ServiceMap.Service<
   AgentExecutor,
   {
+    readonly directory: string | null
     readonly toolsDts: Effect.Effect<string>
     readonly agentsMd: Effect.Effect<Option.Option<string>>
     execute(options: {
@@ -174,6 +175,7 @@ ${opts.script}
   }, Stream.unwrap)
 
   return AgentExecutor.of({
+    directory: options.directory,
     toolsDts,
     agentsMd: pipe(
       fs.readFileString(pathService.join(options.directory, "AGENTS.md")),
@@ -193,6 +195,7 @@ export const makeRpc = Effect.gen(function* () {
   })
 
   return AgentExecutor.of({
+    directory: null,
     toolsDts: Effect.orDie(client.toolsDts()),
     agentsMd: Effect.orDie(client.agentsMd()),
     execute: (opts) =>

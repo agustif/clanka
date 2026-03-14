@@ -15,6 +15,7 @@
 - Treat the activity rail as support context only.
 - Render auth/login as first-class interruption cards.
 - Move deep trace toward a secondary view or expansion model.
+- Persist sessions continuously and resume from the last saved project session.
 
 ## Phase 3: Operator trust
 
@@ -22,7 +23,7 @@
 - Distinguish facts, evidence, and inference in the UI.
 - Improve failure recovery so non-JavaScript model output is fed back into the
   loop instead of collapsing the run.
-- Add replay and richer run history.
+- Add replay and richer run history derived from the session event log.
 
 ## Phase 4: Production feel
 

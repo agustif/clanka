@@ -10,7 +10,7 @@ import {
 import { makeState, render, update } from "./Tui.ts"
 
 describe("Tui", () => {
-  it("renders the timeline and details panels from typed agent events", () => {
+  it("renders a conversation-first agent console from typed events", () => {
     let state = makeState({
       title: "test tui",
       cwd: "/tmp/demo",
@@ -65,10 +65,10 @@ describe("Tui", () => {
       rows: 24,
     })
 
-    expect(frame).toContain("Activity")
-    expect(frame).toContain("Agent")
-    expect(frame).toContain("Agent #1 starting")
-    expect(frame).toContain("OUTPUT Script output")
+    expect(frame).toContain("Clanka")
+    expect(frame).toContain("Sidebar")
+    expect(frame).toContain("Clanka started working")
+    expect(frame).toContain("EVIDENCE Clanka observed concrete output")
     expect(frame).toContain("Completed a mock run.")
   })
 })
