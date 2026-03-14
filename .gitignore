@@ -5,6 +5,7 @@ node_modules/
 dist/
 .tmp-xdg/
 .ημ/
+session/
 lalph-plan.md
 *.tsbuildinfo
 data/

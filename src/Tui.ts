@@ -2,9 +2,8 @@
  * @since 1.0.0
  */
 import chalk from "chalk"
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
-import * as NodePath from "node:path"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
@@ -12,6 +11,11 @@ import * as Terminal from "effect/Terminal"
 import type * as Prompt from "effect/unstable/ai/Prompt"
 import { AuthPrompt, type AuthPromptPayload } from "./AuthPrompt.ts"
 import { Agent, type ContentPart, type Output } from "./Agent.ts"
+import {
+  SessionStore,
+  type SessionSnapshot,
+  type SessionSummary,
+} from "./Session.ts"
 
 /**
  * @since 1.0.0
@@ -109,122 +113,7 @@ const enterAltScreen = "\u001b[?1049h\u001b[?25l"
 const exitAltScreen = "\u001b[?25h\u001b[?1049l"
 const clearScreen = "\u001b[2J\u001b[H"
 const ansiPattern = new RegExp(String.raw`\u001B\[[0-9;?]*[A-Za-z]`, "g")
-const SESSION_DIR_ENV = "CLANKA_SESSION_DIR"
-const LIVE_STATE_FILE = "live-state.json"
-const LIVE_SESSION_FILE = "live-session.jsonl"
-
-interface SessionSnapshot {
-  readonly savedAt: string
-  readonly cause: string
-  readonly state: TuiState
-}
-
-interface SessionStateSummary {
-  readonly status: TuiState["status"]
-  readonly activeRunId: number
-  readonly entries: number
-  readonly selectedEntry: number
-  readonly activeProvider: string | null
-  readonly activeModel: string | null
-  readonly footer: string
-}
-
-type SessionEvent =
-  | {
-      readonly savedAt: string
-      readonly event: "startup" | "resume" | "auto-submit"
-      readonly summary: SessionStateSummary
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "Input"
-      readonly summary: SessionStateSummary
-      readonly payload: {
-        readonly key: Terminal.UserInput["key"]
-        readonly input: string | undefined
-      }
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "Output"
-      readonly summary: SessionStateSummary
-      readonly payload: ReturnType<typeof serializeOutput>
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "RunComplete"
-      readonly summary: SessionStateSummary
-      readonly payload: {
-        readonly runId: number
-        readonly summary: string
-      }
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "RunError"
-      readonly summary: SessionStateSummary
-      readonly payload: {
-        readonly runId: number
-        readonly message: string
-      }
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "System"
-      readonly summary: SessionStateSummary
-      readonly payload: {
-        readonly message: string
-      }
-    }
-  | {
-      readonly savedAt: string
-      readonly event: "AuthPrompt"
-      readonly summary: SessionStateSummary
-      readonly payload: AuthPromptPayload
-    }
-
-const resolveSessionDirectory = (cwd: string) =>
-  process.env[SESSION_DIR_ENV] ?? NodePath.join(cwd, "session")
-
-const loadSessionSnapshot = async (
-  cwd: string,
-): Promise<SessionSnapshot | null> => {
-  const path = NodePath.join(resolveSessionDirectory(cwd), LIVE_STATE_FILE)
-  try {
-    const raw = await readFile(path, "utf8")
-    return JSON.parse(raw) as SessionSnapshot
-  } catch {
-    return null
-  }
-}
-
-const persistSessionSnapshot = async (
-  cwd: string,
-  snapshot: SessionSnapshot,
-): Promise<void> => {
-  const directory = resolveSessionDirectory(cwd)
-  await mkdir(directory, { recursive: true })
-  await writeFile(
-    NodePath.join(directory, LIVE_STATE_FILE),
-    JSON.stringify(snapshot, null, 2),
-    "utf8",
-  )
-}
-
-const appendSessionEvent = async (
-  cwd: string,
-  event: SessionEvent,
-): Promise<void> => {
-  const directory = resolveSessionDirectory(cwd)
-  await mkdir(directory, { recursive: true })
-  await appendFile(
-    NodePath.join(directory, LIVE_SESSION_FILE),
-    JSON.stringify(event) + "\n",
-    "utf8",
-  )
-}
-
-const summarizeState = (state: TuiState): SessionStateSummary => ({
+const summarizeState = (state: TuiState): SessionSummary => ({
   status: state.status,
   activeRunId: state.activeRunId,
   entries: state.entries.length,
@@ -285,7 +174,7 @@ const serializeOutput = (output: Output) => {
 }
 
 const resumeState = (
-  snapshot: SessionSnapshot,
+  snapshot: SessionSnapshot<TuiState>,
   options?: TuiOptions,
 ): TuiState => {
   const resumed = snapshot.state
@@ -1138,10 +1027,13 @@ export const run = (options?: TuiOptions) =>
   Effect.gen(function* () {
     const terminal = yield* Terminal.Terminal
     const input = yield* terminal.readInput
-    const cwd = options?.cwd ?? process.cwd()
-    const previous = yield* Effect.promise(() => loadSessionSnapshot(cwd))
+    const sessions = yield* SessionStore
+    const previous = yield* sessions.loadSnapshot<TuiState>()
     const stateRef = yield* Ref.make(
-      previous === null ? makeState(options) : resumeState(previous, options),
+      Option.match(previous, {
+        onNone: () => makeState(options),
+        onSome: (snapshot) => resumeState(snapshot, options),
+      }),
     )
     const queue = yield* Queue.unbounded<Message>()
     const authPromptLayer = AuthPrompt.serviceMap((payload: AuthPromptPayload) =>
@@ -1153,26 +1045,26 @@ export const run = (options?: TuiOptions) =>
     const persistState = (cause: string) =>
       Ref.get(stateRef).pipe(
         Effect.flatMap((state) =>
-          Effect.promise(() =>
-            persistSessionSnapshot(cwd, {
+          sessions.saveSnapshot(
+            {
               savedAt: new Date().toISOString(),
               cause,
               state,
-            }),
+            },
+            summarizeState(state),
           ),
         ),
-        Effect.orDie,
       )
 
     const persistEvent = (message: Exclude<Message, { _tag: "Quit" }>) =>
       Ref.get(stateRef).pipe(
         Effect.flatMap((state) =>
-          Effect.promise(() => {
+          Effect.gen(function* () {
             const savedAt = new Date().toISOString()
             const summary = summarizeState(state)
             switch (message._tag) {
               case "Input":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "Input",
                   summary,
@@ -1182,14 +1074,14 @@ export const run = (options?: TuiOptions) =>
                   },
                 })
               case "Output":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "Output",
                   summary,
                   payload: serializeOutput(message.output),
                 })
               case "RunComplete":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "RunComplete",
                   summary,
@@ -1199,7 +1091,7 @@ export const run = (options?: TuiOptions) =>
                   },
                 })
               case "RunError":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "RunError",
                   summary,
@@ -1209,7 +1101,7 @@ export const run = (options?: TuiOptions) =>
                   },
                 })
               case "System":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "System",
                   summary,
@@ -1218,7 +1110,7 @@ export const run = (options?: TuiOptions) =>
                   },
                 })
               case "AuthPrompt":
-                return appendSessionEvent(cwd, {
+                return yield* sessions.appendEvent({
                   savedAt,
                   event: "AuthPrompt",
                   summary,
@@ -1227,21 +1119,17 @@ export const run = (options?: TuiOptions) =>
             }
           }),
         ),
-        Effect.orDie,
       )
 
     const persistLifecycle = (event: "startup" | "resume" | "auto-submit") =>
       Ref.get(stateRef).pipe(
         Effect.flatMap((state) =>
-          Effect.promise(() =>
-            appendSessionEvent(cwd, {
-              savedAt: new Date().toISOString(),
-              event,
-              summary: summarizeState(state),
-            }),
-          ),
+          sessions.appendEvent({
+            savedAt: new Date().toISOString(),
+            event,
+            summary: summarizeState(state),
+          }),
         ),
-        Effect.orDie,
       )
 
     const renderState = Ref.get(stateRef).pipe(
@@ -1270,8 +1158,8 @@ export const run = (options?: TuiOptions) =>
     )
 
     yield* renderState
-    yield* persistState(previous === null ? "startup" : "resume")
-    yield* persistLifecycle(previous === null ? "startup" : "resume")
+    yield* persistState(Option.isNone(previous) ? "startup" : "resume")
+    yield* persistLifecycle(Option.isNone(previous) ? "startup" : "resume")
 
     if (
       options?.autoSubmit === true &&

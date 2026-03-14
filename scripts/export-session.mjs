@@ -10,7 +10,9 @@ const entries = lines.map((line, i) => {
   try {
     return JSON.parse(line);
   } catch (error) {
-    throw new Error(`Invalid JSONL at line ${i + 1}: ${String(error)}`);
+    throw new Error(`Invalid JSONL at line ${i + 1}: ${String(error)}`, {
+      cause: error,
+    });
   }
 });
 

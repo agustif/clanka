@@ -1,7 +1,7 @@
 /**
  * @since 1.0.0
  */
-import * as Effect from "effect/Effect"
+import type * as Effect from "effect/Effect"
 import * as ServiceMap from "effect/ServiceMap"
 
 /**

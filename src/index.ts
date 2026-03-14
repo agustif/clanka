@@ -31,6 +31,11 @@ export * as OutputFormatter from "./OutputFormatter.ts"
 /**
  * @since 1.0.0
  */
+export * as Session from "./Session.ts"
+
+/**
+ * @since 1.0.0
+ */
 export * as ToolkitRenderer from "./ToolkitRenderer.ts"
 
 /**

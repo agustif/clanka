@@ -10,6 +10,7 @@ import {
 import { KeyValueStore } from "effect/unstable/persistence"
 import * as NodePath from "node:path"
 import * as OfflineHttpClient from "../src/OfflineHttpClient.ts"
+import * as Session from "../src/Session.ts"
 
 const XDG_CONFIG_HOME =
   process.env.XDG_CONFIG_HOME ||
@@ -78,6 +79,10 @@ Tui.run({
     modelLayer,
     Agent.layerSubagentModel(subagentLayer),
     AgentLayer,
+    Session.layer({
+      cwd: process.cwd(),
+      title: useMock ? "mock tui session" : "live tui session",
+    }).pipe(Layer.provideMerge(BunServices.layer)),
     BunTerminal.layer,
   ]),
   BunRuntime.runMain,

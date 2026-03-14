@@ -9,6 +9,7 @@ import {
   Tui,
 } from "../src/index.ts"
 import * as MockModel from "../src/MockModel.ts"
+import * as Session from "../src/Session.ts"
 import {
   BunHttpClient,
   BunRuntime,
@@ -115,7 +116,14 @@ const runTui = Tui.run({
   exitOnComplete: runOnce,
 }).pipe(
   Effect.scoped,
-  Effect.provide([...runtimeLayer, BunTerminal.layer]),
+  Effect.provide([
+    ...runtimeLayer,
+    Session.layer({
+      cwd: process.cwd(),
+      title: useMock ? "mock cli session" : "live cli session",
+    }).pipe(Layer.provideMerge(BunServices.layer)),
+    BunTerminal.layer,
+  ]),
 )
 
 const runPrettyCli = Effect.gen(function* () {

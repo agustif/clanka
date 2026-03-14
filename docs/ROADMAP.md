@@ -3,6 +3,7 @@
 ## Phase 1: Runtime hardening
 
 - Keep the agent/executor/tool split canonical.
+- Promote sessions into a core storage service instead of a TUI-local helper.
 - Keep live provider auth working under Bun-native Effect runtime layers.
 - Ensure all public entrypoints behave correctly in both live and mock modes.
 - Preserve mock mode only as a deterministic validation path, not as the
@@ -33,6 +34,12 @@
   Effect-native.
 - Add a deeper component model for feed cards, sidebars, overlays, and
   approvals.
+
+## Cross-incumbent standards
+
+- Track a living `SPEC.md` that codifies shared harness invariants:
+  project-scoped sessions, append-only history, resume, branching, handoff,
+  file tracking, and operator-visible state transitions.
 
 ## Deferred
 

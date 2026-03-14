@@ -67,7 +67,7 @@ describe("Tui", () => {
 
     expect(frame).toContain("Clanka")
     expect(frame).toContain("Sidebar")
-    expect(frame).toContain("Clanka started working")
+    expect(frame).toContain("Clanka finished the run")
     expect(frame).toContain("EVIDENCE Clanka observed concrete output")
     expect(frame).toContain("Completed a mock run.")
   })
