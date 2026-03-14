@@ -338,7 +338,7 @@ Use `TestClock` for deterministic delay/polling tests.
 - `erasableSyntaxOnly: true`: avoid non-erasable TS constructs
 - `no-explicit-any`: use `Schema.decodeUnknown` or `unknown` narrowing
 - Keep helpers factored for independent task-level validation
-- After each task: `pnpm check && pnpm vitest run`
+- After each task: `bun run validate`
 
 ## Implementation Plan
 
@@ -353,7 +353,7 @@ storage helpers (`prefix + schema store`).
 
 - `TokenData` and `CodexAuthError` compile and are exported
 - Round-trip persistence tests pass with `KeyValueStore.layerMemory`
-- `pnpm check && pnpm vitest run` passes
+- `bun run validate` passes
 
 ### Task 2: Pure JWT Parsing Helpers
 
@@ -367,7 +367,7 @@ Implement pure JWT parsing/account extraction helpers using
 - All account-id claim shapes supported
 - Malformed tokens safely return `Option.none()` without entering the auth error channel
 - No `any` usage
-- `pnpm check && pnpm vitest run` passes
+- `bun run validate` passes
 
 ### Task 3: OAuth HTTP Primitives
 
@@ -388,7 +388,7 @@ with explicit status handling for poll (`200` / `403` / `404` / other).
 - Poll delays use interval + safety margin
 - Token exchange/refresh payloads are correctly encoded
 - Deterministic tests pass (including clock-based polling)
-- `pnpm check && pnpm vitest run` passes
+- `bun run validate` passes
 
 ### Task 4: `CodexAuth` Service Orchestration
 
@@ -403,7 +403,7 @@ Wire cache + persistence + semaphore + fallback policy into
 - refresh failure falls back to device flow
 - semaphore serialization verified with concurrent test
 - terminal error mapping is consistent and documented
-- `pnpm check && pnpm vitest run` passes
+- `bun run validate` passes
 
 ### Task 5: Layer Wiring (`layerClient` and `Codex`)
 
@@ -418,4 +418,4 @@ Add `layerClient` and compose final `Codex.layer` / `Codex.model(modelId)`.
 - no `CodexAuth.Default` references
 - no cyclic `HttpClient` composition
 - layer availability tests pass without external network
-- `pnpm check && pnpm vitest run` passes
+- `bun run validate` passes

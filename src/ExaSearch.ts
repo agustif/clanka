@@ -4,7 +4,9 @@
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as Ref from "effect/Ref"
 import * as Schema from "effect/Schema"
+import * as Semaphore from "effect/Semaphore"
 import * as ServiceMap from "effect/ServiceMap"
 import * as McpClient from "./McpClient.ts"
 
@@ -53,16 +55,30 @@ export const layer = Layer.effect(
   ExaSearch,
   Effect.gen(function* () {
     const client = yield* McpClient.McpClient
-
-    yield* client.connect({ url: "https://mcp.exa.ai/mcp" }).pipe(Effect.orDie)
+    const connected = yield* Ref.make(false)
+    const connectLock = Semaphore.makeUnsafe(1)
 
     const decode = Schema.decodeUnknownEffect(
       Schema.NonEmptyArray(ExaSearchResult),
     )
 
+    const ensureConnected = connectLock.withPermit(
+      Effect.gen(function* () {
+        if (yield* Ref.get(connected)) {
+          return
+        }
+
+        yield* client.connect({ url: "https://mcp.exa.ai/mcp" }).pipe(
+          Effect.mapError((cause) => new ExaError({ cause })),
+        )
+        yield* Ref.set(connected, true)
+      }),
+    )
+
     return ExaSearch.of({
       search: Effect.fn("ExaSearch.search")(
         function* (options) {
+          yield* ensureConnected
           const results = yield* pipe(
             client.toolCall({
               name: "web_search_exa",

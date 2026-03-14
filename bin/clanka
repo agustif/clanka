@@ -1,0 +1,141 @@
+#!/usr/bin/env bun
+
+import { Effect, Layer, Option, pipe, Stream } from "effect"
+import {
+  Agent,
+  Codex,
+  Copilot,
+  OutputFormatter,
+  Tui,
+} from "../src/index.ts"
+import * as MockModel from "../src/MockModel.ts"
+import {
+  BunHttpClient,
+  BunRuntime,
+  BunServices,
+  BunTerminal,
+} from "@effect/platform-bun"
+import { KeyValueStore } from "effect/unstable/persistence"
+import * as NodePath from "node:path"
+import * as OfflineHttpClient from "../src/OfflineHttpClient.ts"
+
+const helpText = `clanka
+
+Usage:
+  clanka [--mock|--live] [--copilot] [--cli] [--once] [prompt...]
+
+Modes:
+  default          Start the full-screen TUI
+  --cli            Render the linear CLI formatter instead of the TUI
+  --mock           Use the built-in deterministic mock model
+  --live           Explicitly force the real provider layers
+  --copilot        Use Copilot instead of Codex for live runs
+  --once           For the TUI, auto-submit the prompt and exit after completion
+
+Examples:
+  clanka "inspect the repo"
+  clanka --once "inspect the repo"
+  clanka --cli --mock "list the workspace"
+  clanka "inspect the workspace"
+  clanka --copilot "inspect the workspace"
+`
+
+const args = process.argv.slice(2)
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(helpText)
+  process.exit(0)
+}
+
+const XDG_CONFIG_HOME =
+  process.env.XDG_CONFIG_HOME ||
+  NodePath.join(process.env.HOME || "", ".config")
+
+const useMock = args.includes("--mock")
+const useCopilot = args.includes("--copilot")
+const runCli = args.includes("--cli")
+const runOnce = args.includes("--once")
+const prompt = MockModel.defaultPromptFromArgs(
+  args.filter((arg) => !arg.startsWith("--")),
+)
+
+const modelServices = KeyValueStore.layerFileSystem(
+  NodePath.join(XDG_CONFIG_HOME, "clanka"),
+).pipe(
+  Layer.provide(BunServices.layer),
+  Layer.merge(BunHttpClient.layer),
+)
+
+const codexModel = Codex.model("gpt-5.3-codex", {
+  reasoning: {
+    effort: "high",
+  },
+}).pipe(Layer.provide(modelServices))
+
+const copilotModel = Copilot.model("claude-opus-4.6", {
+  thinking: { thinking_budget: 4000 },
+}).pipe(Layer.provideMerge(modelServices))
+
+const liveSubagentModel = Codex.model("gpt-5.4", {
+  reasoning: {
+    effort: "low",
+    summary: "auto",
+  },
+}).pipe(Layer.provide(modelServices))
+
+const mockAgentModel = MockModel.model()
+const mockSubagentModel = MockModel.model({
+  modelName: "scripted-subagent",
+})
+
+const modelLayer = useMock
+  ? mockAgentModel
+  : useCopilot
+    ? copilotModel
+    : codexModel
+
+const subagentLayer = useMock ? mockSubagentModel : liveSubagentModel
+
+const agentLayer = Agent.layerLocal({
+  directory: process.cwd(),
+}).pipe(
+  Layer.provide(BunServices.layer),
+  Layer.provide(useMock ? OfflineHttpClient.layer : BunHttpClient.layer),
+)
+
+const runtimeLayer = [
+  modelLayer,
+  Agent.layerSubagentModel(subagentLayer),
+  agentLayer,
+]
+
+const runTui = Tui.run({
+  title: useMock ? "clanka tui (mock)" : "clanka tui",
+  initialPrompt: Option.getOrUndefined(prompt),
+  autoSubmit: runOnce || Option.isSome(prompt),
+  exitOnComplete: runOnce,
+}).pipe(
+  Effect.scoped,
+  Effect.provide([...runtimeLayer, BunTerminal.layer]),
+)
+
+const runPrettyCli = Effect.gen(function* () {
+  const agent = yield* Agent.Agent
+  const output = yield* pipe(
+    agent.send({
+      prompt: Option.getOrElse(prompt, () => "list the workspace"),
+    }),
+    Effect.provide([modelLayer, Agent.layerSubagentModel(subagentLayer)]),
+  )
+
+  yield* output.pipe(
+    OutputFormatter.pretty,
+    Stream.runForEachArray((chunk) => {
+      for (const part of chunk) {
+        process.stdout.write(part)
+      }
+      return Effect.void
+    }),
+  )
+}).pipe(Effect.scoped, Effect.provide(agentLayer))
+
+;(runCli ? runPrettyCli : runTui).pipe(BunRuntime.runMain)

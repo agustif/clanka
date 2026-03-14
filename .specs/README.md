@@ -2,6 +2,9 @@
 
 ## Projects
 
+- [Runtime And TUI](./runtime-and-tui.md) - Canonical spec for the Bun-first
+  fork runtime: agent loop, executor boundary, tool surface, offline mock mode,
+  and the fully Effect-native TUI.
 - [TypeBuilder](./type-builder.md) - Generate TypeScript type expressions from
   Effect Schema definitions. Ports the original `TypeBuilder.ts` to work with
   Effect v4's restructured SchemaAST.

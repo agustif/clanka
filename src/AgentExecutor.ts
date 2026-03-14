@@ -164,7 +164,7 @@ ${opts.script}
       }
     }).pipe(
       Effect.ensuring(Scope.close(handlerScope, Exit.void)),
-      Effect.catchCause(Effect.logFatal),
+      Effect.catchCause(Effect.logDebug),
       Effect.provideService(Console.Console, console),
       Effect.ensuring(Queue.end(output)),
       Effect.forkScoped,

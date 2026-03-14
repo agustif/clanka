@@ -3,6 +3,8 @@
 .lalph/
 node_modules/
 dist/
+.tmp-xdg/
+.ημ/
 lalph-plan.md
 *.tsbuildinfo
 data/

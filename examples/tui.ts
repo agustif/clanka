@@ -1,15 +1,11 @@
-import { Effect, Layer, Option, pipe, Stream } from "effect"
-import {
-  Agent,
-  Codex,
-  Copilot,
-  OutputFormatter,
-} from "../src/index.ts"
+import { Effect, Layer, Option } from "effect"
+import { Agent, Codex, Copilot, Tui } from "../src/index.ts"
 import * as MockModel from "../src/MockModel.ts"
 import {
   BunHttpClient,
   BunRuntime,
   BunServices,
+  BunTerminal,
 } from "@effect/platform-bun"
 import { KeyValueStore } from "effect/unstable/persistence"
 import * as NodePath from "node:path"
@@ -19,7 +15,6 @@ const XDG_CONFIG_HOME =
   process.env.XDG_CONFIG_HOME ||
   NodePath.join(process.env.HOME || "", ".config")
 
-console.log(`Using config directory: ${XDG_CONFIG_HOME}`)
 const ModelServices = KeyValueStore.layerFileSystem(
   NodePath.join(XDG_CONFIG_HOME, "clanka"),
 ).pipe(
@@ -52,7 +47,8 @@ const MockSubagentModel = MockModel.model({
 const args = process.argv.slice(2)
 const useMock = args.includes("--mock")
 const useCopilot = args.includes("--copilot")
-const prompt = MockModel.defaultPromptFromArgs(
+const runOnce = args.includes("--once")
+const initialPrompt = MockModel.defaultPromptFromArgs(
   args.filter((arg) => !arg.startsWith("--")),
 )
 
@@ -63,28 +59,26 @@ const AgentLayer = Agent.layerLocal({
   Layer.provide(useMock ? OfflineHttpClient.layer : BunHttpClient.layer),
 )
 
-Effect.gen(function* () {
-  const agent = yield* Agent.Agent
-  const modelLayer = useMock
-    ? MockAgentModel
-    : useCopilot
-      ? CopilotModel
-      : CodexModel
-  const subagentLayer = useMock ? MockSubagentModel : LiveSubagentModel
+const modelLayer = useMock
+  ? MockAgentModel
+  : useCopilot
+    ? CopilotModel
+    : CodexModel
 
-  const output = yield* pipe(
-    agent.send({
-      prompt: Option.getOrElse(prompt, () => "list the workspace"),
-    }),
-    Effect.provide([modelLayer, Agent.layerSubagentModel(subagentLayer)]),
-  )
-  yield* output.pipe(
-    OutputFormatter.pretty,
-    Stream.runForEachArray((chunk) => {
-      for (const out of chunk) {
-        process.stdout.write(out)
-      }
-      return Effect.void
-    }),
-  )
-}).pipe(Effect.scoped, Effect.provide(AgentLayer), BunRuntime.runMain)
+const subagentLayer = useMock ? MockSubagentModel : LiveSubagentModel
+
+Tui.run({
+  title: useMock ? "clanka tui (mock)" : "clanka tui",
+  initialPrompt: Option.getOrUndefined(initialPrompt),
+  autoSubmit: runOnce || Option.isSome(initialPrompt),
+  exitOnComplete: runOnce,
+}).pipe(
+  Effect.scoped,
+  Effect.provide([
+    modelLayer,
+    Agent.layerSubagentModel(subagentLayer),
+    AgentLayer,
+    BunTerminal.layer,
+  ]),
+  BunRuntime.runMain,
+)

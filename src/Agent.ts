@@ -31,6 +31,7 @@ import * as Layer from "effect/Layer"
 import * as Tool from "effect/unstable/ai/Tool"
 import * as Toolkit from "effect/unstable/ai/Toolkit"
 import * as Semaphore from "effect/Semaphore"
+import * as Cause from "effect/Cause"
 
 /**
  * @since 1.0.0
@@ -286,6 +287,11 @@ ${content}
             }),
         }),
         Stream.mkString,
+        Effect.catchCause((cause) =>
+          Effect.succeed(
+            `Javascript execution error:\n\n${Cause.pretty(cause)}`,
+          ),
+        ),
       )
       maybeSend({ agentId, part: new ScriptOutput({ output }) })
       return output

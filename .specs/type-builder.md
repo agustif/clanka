@@ -337,8 +337,8 @@ const printNode = (node: ts.Node, options?: ts.PrinterOptions): string => {
   `typescript/no-explicit-any: error`. Use `unknown` or specific types in all
   authored code. The `Schema.Top` type reference is acceptable since it comes
   from Effect's type system.
-- **Effect best practices**: Refer to `.repos/effect/LLMS.md` for Effect
-  library patterns and best practices.
+- **Effect best practices**: Refer to `.repos/effect-smol` for current Effect
+  v4 library patterns and terminal/runtime examples.
 
 ## Dependencies
 
@@ -362,7 +362,7 @@ const printNode = (node: ts.Node, options?: ts.PrinterOptions): string => {
 `src/TypeBuilder.test.ts`
 
 > Tasks 1 and 2 from the original plan are merged. Without a `.ts` file in
-> `src/`, `pnpm check` fails with `TS18003: No inputs were found` because
+> `src/`, `bun run validate` fails with `TS18003: No inputs were found` because
 > `tsconfig.json` has `"include": ["src"]`.
 
 Setup:
@@ -404,7 +404,7 @@ Tests (in `src/TypeBuilder.test.ts`):
 - `Schema.Literal(42)` -> `"42"`
 - `Schema.Literal(true)` -> `"true"`
 
-Verify: `pnpm install && pnpm check && pnpm test` all pass.
+Verify: `bun install && bun run validate` passes.
 
 ### Task 2: Implement `Objects` rendering (struct/record types)
 
@@ -428,7 +428,7 @@ Tests:
   `"{ [x: string]: number }"`
 - Struct with `"documentation"` annotation.
 
-Verify: `pnpm check && pnpm test` pass.
+Verify: `bun run validate` passes.
 
 ### Task 3: Implement `Arrays` rendering (tuples and arrays)
 
@@ -450,7 +450,7 @@ Tests:
 - Tuple with optional elements.
 - Tuple with rest elements.
 
-Verify: `pnpm check && pnpm test` pass.
+Verify: `bun run validate` passes.
 
 ### Task 4: Implement `Union`, `Enum`, and `TemplateLiteral` rendering
 
@@ -471,7 +471,7 @@ Tests:
 - `Schema.TemplateLiteral(Schema.Literal("user_"), Schema.String)` ->
   ``"`user_${string}`"``
 
-Verify: `pnpm check && pnpm test` pass.
+Verify: `bun run validate` passes.
 
 ### Task 5: Implement `Declaration`, `Suspend`, and integration tests
 
@@ -495,4 +495,4 @@ Tests:
   `toType`).
 - Branded schema -> renders underlying type (brands ignored).
 
-Verify: `pnpm check && pnpm test` pass.
+Verify: `bun run validate` passes.

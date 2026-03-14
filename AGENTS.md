@@ -1,15 +1,17 @@
 # Information
 
 - The base branch for this repository is `master`.
-- The package manager used is `pnpm`.
+- The package manager used is `bun`.
 
 # Validations
 
-Run `pnpm check` and `pnpm test` after changing any code.
+Run `bun run validate` after changing code.
 
 # This project uses "effect"
 
-Before writing any code, YOU MUS5 read `.repos/effect/LLMS.md` fully.
+Use `.repos/effect-smol` as the local Effect v4 reference checkout when working
+on services, layers, terminal input, or RPC wiring. If the reference checkout
+is missing, clone it before making non-trivial runtime changes.
 
 # Changesets
 
@@ -21,4 +23,4 @@ There should one be ONE changeset per pull request.
 # Specifications
 
 To learn more about previous and current specifications for this project, see
-the `.specs/README.md` file.
+the `.specs/README.md` file and the `specs/` working notes.
