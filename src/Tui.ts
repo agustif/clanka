@@ -257,39 +257,6 @@ const flushCurrentBlock = (state: TuiState): TuiState => {
   )
 }
 
-const resetForThread = (
-  state: TuiState,
-  thread: {
-    readonly threadId: string
-    readonly threadTitle: string
-    readonly threadCount: number
-  },
-  notice: string,
-): TuiState =>
-  appendEntry(
-    {
-      ...state,
-      status: "idle",
-      activeRunId: 0,
-      input: "",
-      entries: [],
-      selectedEntry: 0,
-      activeModel: null,
-      activeProvider: null,
-      currentBlock: null,
-      threadId: thread.threadId,
-      threadTitle: thread.threadTitle,
-      threadCount: thread.threadCount,
-      footer: notice,
-    },
-    {
-      runId: 0,
-      kind: "system",
-      title: "Thread changed",
-      body: notice,
-    },
-  )
-
 const entryKindFromTurnRole = (role: "user" | "agent" | "auth" | "system" | "result"): TuiEntry["kind"] => {
   switch (role) {
     case "user":
@@ -339,7 +306,7 @@ const loadThreadView = Effect.fn(function* (
   const current = yield* sessions.current()
   const events = yield* sessions.readEvents(threadId)
   const turns = aggregateTurns(events)
-  let nextState = {
+  let nextState: TuiState = {
     ...state,
     status: "idle" as const,
     activeRunId: 0,
