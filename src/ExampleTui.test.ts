@@ -20,6 +20,7 @@ describe("examples/tui.ts", () => {
         env: {
           ...process.env,
           XDG_CONFIG_HOME: NodePath.join(root, ".tmp-xdg"),
+          CLANKA_SESSION_DIR: NodePath.join(root, ".tmp-session-tui"),
         },
       },
     )

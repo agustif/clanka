@@ -73,6 +73,22 @@ export interface SessionRecord {
  * @since 1.0.0
  * @category Models
  */
+export interface ThreadRecord {
+  readonly id: string
+  readonly title: string
+  readonly kind: "main" | "branch" | "handoff"
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly status: string
+  readonly parentThreadId?: string | undefined
+  readonly branchPointEntryId?: string | undefined
+  readonly handoffSummary?: string | undefined
+}
+
+/**
+ * @since 1.0.0
+ * @category Models
+ */
 export interface SessionIndex {
   readonly version: 1
   readonly projectRoot: string
@@ -80,7 +96,11 @@ export interface SessionIndex {
   readonly currentThreadId: string
   readonly updatedAt: string
   readonly sessions: ReadonlyArray<SessionRecord>
+  readonly threads: ReadonlyArray<ThreadRecord>
 }
+
+type SessionIndexInput =
+  Omit<SessionIndex, "threads"> & { readonly threads?: ReadonlyArray<ThreadRecord> | undefined }
 
 /**
  * @since 1.0.0
@@ -90,6 +110,16 @@ export interface SessionStore {
   readonly directory: string
   readonly sessionId: string
   readonly threadId: string
+  listThreads(): Effect.Effect<ReadonlyArray<ThreadRecord>>
+  switchThread(threadId: string): Effect.Effect<void>
+  createThread(options: {
+    readonly title: string
+    readonly kind: "branch" | "handoff"
+    readonly parentThreadId?: string | undefined
+    readonly branchPointEntryId?: string | undefined
+    readonly handoffSummary?: string | undefined
+    readonly activate?: boolean | undefined
+  }): Effect.Effect<ThreadRecord>
   loadSnapshot<State>(): Effect.Effect<Option.Option<SessionSnapshot<State>>>
   saveSnapshot<State>(
     snapshot: SessionSnapshot<State>,
@@ -128,6 +158,14 @@ const makeIndex = (options: {
   const now = new Date().toISOString()
   const sessionId = makeId("session")
   const threadId = "main"
+  const mainThread: ThreadRecord = {
+    id: threadId,
+    title: options.title ?? "main",
+    kind: "main",
+    createdAt: now,
+    updatedAt: now,
+    status: "idle",
+  }
   return {
     version: 1,
     projectRoot: options.cwd,
@@ -144,6 +182,31 @@ const makeIndex = (options: {
         status: "idle",
       },
     ],
+    threads: [mainThread],
+  }
+}
+
+const normalizeIndex = (index: SessionIndexInput): SessionIndex => {
+  const fallbackThread: ThreadRecord = {
+    id: index.currentThreadId || "main",
+    title: "main",
+    kind: "main",
+    createdAt: index.updatedAt,
+    updatedAt: index.updatedAt,
+    status:
+      index.sessions.find((session) => session.id === index.currentSessionId)?.status ??
+      "idle",
+  }
+
+  const threads =
+    index.threads !== undefined && index.threads.length > 0
+      ? index.threads
+      : [fallbackThread]
+
+  return {
+    ...index,
+    currentThreadId: index.currentThreadId || threads[0]!.id,
+    threads,
   }
 }
 
@@ -181,9 +244,10 @@ export const layer = (options: {
         fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie)
 
       let currentIndex = Option.getOrElse(
-        yield* readJson<SessionIndex>(indexPath),
+        yield* readJson<SessionIndexInput>(indexPath),
         () => makeIndex(options),
       )
+      currentIndex = normalizeIndex(currentIndex)
 
       const currentSessionPath = () =>
         path.join(directory, "sessions", currentIndex.currentSessionId)
@@ -214,10 +278,34 @@ export const layer = (options: {
                   }
                 : session,
             ),
+            threads: currentIndex.threads.map((thread) =>
+              thread.id === currentIndex.currentThreadId
+                ? {
+                    ...thread,
+                    updatedAt: now,
+                    status: summary.status,
+                  }
+                : thread,
+            ),
           }
           yield* ensureDirectory(directory)
           yield* writeJson(indexPath, currentIndex)
         })
+
+      const currentSummary = (): SessionSummary => {
+        const activeSession = currentIndex.sessions.find(
+          (session) => session.id === currentIndex.currentSessionId,
+        )
+        return {
+          status: activeSession?.status ?? "idle",
+          activeRunId: 0,
+          entries: 0,
+          selectedEntry: 0,
+          activeProvider: null,
+          activeModel: null,
+          footer: "",
+        }
+      }
 
       yield* ensureDirectory(path.join(directory, "sessions"))
       yield* ensureDirectory(path.join(currentSessionPath(), "threads"))
@@ -227,6 +315,91 @@ export const layer = (options: {
         directory,
         sessionId: currentIndex.currentSessionId,
         threadId: currentIndex.currentThreadId,
+        listThreads: () => Effect.sync(() => currentIndex.threads),
+        switchThread: (threadId) =>
+          Effect.gen(function* () {
+            const next = currentIndex.threads.find((thread) => thread.id === threadId)
+            if (next === undefined) {
+              return yield* Effect.die(
+                new Error(`Thread not found: ${threadId}`),
+              )
+            }
+            currentIndex = {
+              ...currentIndex,
+              currentThreadId: threadId,
+              sessions: currentIndex.sessions.map((session) =>
+                session.id === currentIndex.currentSessionId
+                  ? {
+                      ...session,
+                      currentThreadId: threadId,
+                    }
+                  : session,
+              ),
+            }
+            yield* ensureDirectory(path.join(currentSessionPath(), "threads"))
+            yield* writeJson(indexPath, currentIndex)
+          }),
+        createThread: (options) =>
+          Effect.gen(function* () {
+            const now = new Date().toISOString()
+            const thread: ThreadRecord = {
+              id: makeId("thread"),
+              title: options.title,
+              kind: options.kind,
+              createdAt: now,
+              updatedAt: now,
+              status: "idle",
+              parentThreadId:
+                options.parentThreadId ?? currentIndex.currentThreadId,
+              branchPointEntryId: options.branchPointEntryId,
+              handoffSummary: options.handoffSummary,
+            }
+
+            currentIndex = {
+              ...currentIndex,
+              currentThreadId: options.activate === false
+                ? currentIndex.currentThreadId
+                : thread.id,
+              threads: [...currentIndex.threads, thread],
+              sessions: currentIndex.sessions.map((session) =>
+                session.id === currentIndex.currentSessionId
+                  ? {
+                      ...session,
+                      currentThreadId:
+                        options.activate === false
+                          ? session.currentThreadId
+                          : thread.id,
+                    }
+                  : session,
+              ),
+            }
+
+            yield* ensureDirectory(path.join(currentSessionPath(), "threads"))
+            yield* fs.writeFileString(
+              path.join(currentSessionPath(), "threads", `${thread.id}.jsonl`),
+              "",
+            ).pipe(Effect.orDie)
+            yield* writeJson(indexPath, currentIndex)
+            yield* fs.writeFileString(
+              liveSessionPath(),
+              JSON.stringify({
+                savedAt: now,
+                sessionId: currentIndex.currentSessionId,
+                threadId: thread.id,
+                entryId: makeId("entry"),
+                event: options.kind === "handoff" ? "Handoff" : "ThreadForked",
+                summary: currentSummary(),
+                payload: {
+                  title: thread.title,
+                  parentThreadId: thread.parentThreadId,
+                  branchPointEntryId: thread.branchPointEntryId,
+                  handoffSummary: thread.handoffSummary,
+                },
+              }) + "\n",
+              { flag: "a" },
+            ).pipe(Effect.orDie)
+            return thread
+          }),
         loadSnapshot: <State>() =>
           readJson<SessionSnapshot<State>>(currentStatePath()).pipe(
             Effect.flatMap((snapshot) =>

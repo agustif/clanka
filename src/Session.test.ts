@@ -20,7 +20,7 @@ const withTempDir = async <A>(use: (directory: string) => Promise<A>) => {
 }
 
 describe("SessionStore", () => {
-  it("persists index, snapshot, and append-only events per project session", async () => {
+  it("persists index, snapshots, events, and thread metadata per project session", async () => {
     await withTempDir(async (cwd) => {
       const result = await Effect.runPromise(
         Effect.gen(function* () {
@@ -63,12 +63,24 @@ describe("SessionStore", () => {
             },
           })
 
+          const thread = yield* sessions.createThread({
+            title: "handoff thread",
+            kind: "handoff",
+            branchPointEntryId: "entry-123",
+            handoffSummary: "Continue the session from the saved summary",
+          })
+
+          const threads = yield* sessions.listThreads()
+          yield* sessions.switchThread(thread.id)
+
           const after = yield* sessions.loadSnapshot<{ foo: string }>()
 
           return {
             directory: sessions.directory,
             sessionId: sessions.sessionId,
             after,
+            threadId: thread.id,
+            threadCount: threads.length,
           }
         }).pipe(
           Effect.provide(
@@ -90,12 +102,15 @@ describe("SessionStore", () => {
       )
       expect(index.currentSessionId).toBe(result.sessionId)
       expect(index.sessions[0].title).toBe("session test")
+      expect(index.threads.some((thread: { id: string }) => thread.id === result.threadId)).toBe(true)
+      expect(result.threadCount).toBe(2)
 
       const liveSession = await readFile(
         NodePath.join(result.directory, "live-session.jsonl"),
         "utf8",
       )
       expect(liveSession).toContain('"event":"System"')
+      expect(liveSession).toContain('"event":"Handoff"')
 
       const threadLog = await readFile(
         NodePath.join(
