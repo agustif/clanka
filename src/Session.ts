@@ -110,6 +110,12 @@ export interface SessionStore {
   readonly directory: string
   readonly sessionId: string
   readonly threadId: string
+  current(): Effect.Effect<{
+    readonly sessionId: string
+    readonly threadId: string
+    readonly threadTitle: string
+    readonly threadCount: number
+  }>
   listThreads(): Effect.Effect<ReadonlyArray<ThreadRecord>>
   switchThread(threadId: string): Effect.Effect<void>
   createThread(options: {
@@ -120,6 +126,9 @@ export interface SessionStore {
     readonly handoffSummary?: string | undefined
     readonly activate?: boolean | undefined
   }): Effect.Effect<ThreadRecord>
+  readEvents<Payload = unknown>(
+    threadId?: string | undefined,
+  ): Effect.Effect<ReadonlyArray<SessionEvent<Payload>>>
   loadSnapshot<State>(): Effect.Effect<Option.Option<SessionSnapshot<State>>>
   saveSnapshot<State>(
     snapshot: SessionSnapshot<State>,
@@ -243,11 +252,12 @@ export const layer = (options: {
       const ensureDirectory = (dir: string) =>
         fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie)
 
-      let currentIndex = Option.getOrElse(
-        yield* readJson<SessionIndexInput>(indexPath),
-        () => makeIndex(options),
+      let currentIndex: SessionIndex = normalizeIndex(
+        Option.getOrElse(
+          yield* readJson<SessionIndexInput>(indexPath),
+          () => makeIndex(options),
+        ),
       )
-      currentIndex = normalizeIndex(currentIndex)
 
       const currentSessionPath = () =>
         path.join(directory, "sessions", currentIndex.currentSessionId)
@@ -315,6 +325,18 @@ export const layer = (options: {
         directory,
         sessionId: currentIndex.currentSessionId,
         threadId: currentIndex.currentThreadId,
+        current: () =>
+          Effect.sync(() => {
+            const thread = currentIndex.threads.find(
+              (thread) => thread.id === currentIndex.currentThreadId,
+            )
+            return {
+              sessionId: currentIndex.currentSessionId,
+              threadId: currentIndex.currentThreadId,
+              threadTitle: thread?.title ?? currentIndex.currentThreadId,
+              threadCount: currentIndex.threads.length,
+            }
+          }),
         listThreads: () => Effect.sync(() => currentIndex.threads),
         switchThread: (threadId) =>
           Effect.gen(function* () {
@@ -399,6 +421,27 @@ export const layer = (options: {
               { flag: "a" },
             ).pipe(Effect.orDie)
             return thread
+          }),
+        readEvents: <Payload>(threadId?: string | undefined) =>
+          Effect.gen(function* () {
+            const filePath = path.join(
+              currentSessionPath(),
+              "threads",
+              `${threadId ?? currentIndex.currentThreadId}.jsonl`,
+            )
+            const raw = yield* fs.readFileString(filePath).pipe(
+              Effect.catchReason("PlatformError", "NotFound", () =>
+                Effect.succeed(""),
+              ),
+              Effect.orDie,
+            )
+            const lines = raw
+              .split("\n")
+              .filter((line) => line.trim().length > 0)
+            return lines.flatMap((line) => {
+              const parsed = parseJsonOption<SessionEvent<Payload>>(line)
+              return Option.isSome(parsed) ? [parsed.value] : []
+            })
           }),
         loadSnapshot: <State>() =>
           readJson<SessionSnapshot<State>>(currentStatePath()).pipe(

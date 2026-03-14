@@ -66,6 +66,10 @@ export interface TuiState {
   readonly entries: ReadonlyArray<TuiEntry>
   readonly activeModel: string | null
   readonly activeProvider: string | null
+  readonly sessionId: string | null
+  readonly threadId: string | null
+  readonly threadTitle: string | null
+  readonly threadCount: number
   readonly footer: string
   readonly currentBlock: CurrentBlock | null
 }
@@ -209,6 +213,10 @@ export const makeState = (options?: TuiOptions): TuiState => ({
   entries: [],
   activeModel: null,
   activeProvider: null,
+  sessionId: null,
+  threadId: null,
+  threadTitle: null,
+  threadCount: 0,
   footer:
     "Enter=start or steer | Up/Down=select | Esc=clear | Ctrl-C=quit",
   currentBlock: null,
@@ -246,6 +254,55 @@ const flushCurrentBlock = (state: TuiState): TuiState => {
     state.currentBlock,
   )
 }
+
+const resetForThread = (
+  state: TuiState,
+  thread: {
+    readonly threadId: string
+    readonly threadTitle: string
+    readonly threadCount: number
+  },
+  notice: string,
+): TuiState =>
+  appendEntry(
+    {
+      ...state,
+      status: "idle",
+      activeRunId: 0,
+      input: "",
+      entries: [],
+      selectedEntry: 0,
+      activeModel: null,
+      activeProvider: null,
+      currentBlock: null,
+      threadId: thread.threadId,
+      threadTitle: thread.threadTitle,
+      threadCount: thread.threadCount,
+      footer: notice,
+    },
+    {
+      runId: 0,
+      kind: "system",
+      title: "Thread changed",
+      body: notice,
+    },
+  )
+
+const withSessionMeta = (
+  state: TuiState,
+  current: {
+    readonly sessionId: string
+    readonly threadId: string
+    readonly threadTitle: string
+    readonly threadCount: number
+  },
+): TuiState => ({
+  ...state,
+  sessionId: current.sessionId,
+  threadId: current.threadId,
+  threadTitle: current.threadTitle,
+  threadCount: current.threadCount,
+})
 
 const beginRun = (state: TuiState, prompt: string): TuiState =>
   appendEntry(
@@ -812,6 +869,9 @@ export const render = (state: TuiState, options?: {
     chalk.dim(`status  ${state.status}`),
     chalk.dim(`provider ${state.activeProvider ?? "n/a"}`),
     chalk.dim(`model ${state.activeModel ?? "n/a"}`),
+    chalk.dim(`session ${state.sessionId ?? "n/a"}`),
+    chalk.dim(`thread ${state.threadTitle ?? state.threadId ?? "n/a"}`),
+    chalk.dim(`threads ${state.threadCount}`),
     chalk.dim(`entries ${state.entries.length}`),
     "",
     chalk.bold("Focus"),
@@ -960,6 +1020,7 @@ const handleInput = Effect.fn(function* (
   queue: Queue.Queue<Message>,
   input: Terminal.UserInput,
 ) {
+  const sessions = yield* SessionStore
   const state = yield* Ref.get(stateRef)
   if (input.key.name === "up") {
     yield* Ref.update(stateRef, (current) => ({
@@ -997,6 +1058,117 @@ const handleInput = Effect.fn(function* (
     if (prompt.length === 0) {
       return
     }
+    if (prompt.startsWith("/thread ")) {
+      const command = prompt.slice("/thread ".length).trim()
+      if (command === "list") {
+        const threads = yield* sessions.listThreads()
+        yield* Ref.update(stateRef, (current) => ({
+          ...current,
+          input: "",
+        }))
+        yield* Queue.offer(queue, {
+          _tag: "System",
+          message: threads
+            .map((thread) =>
+              `${thread.id === state.threadId ? "*" : "-"} ${thread.id} ${thread.kind} ${thread.title}`,
+            )
+            .join("\n"),
+        })
+        return
+      }
+
+      if (command.startsWith("branch ")) {
+        const title = command.slice("branch ".length).trim()
+        if (title.length === 0) {
+          yield* Queue.offer(queue, {
+            _tag: "System",
+            message: "Usage: /thread branch <title>",
+          })
+          return
+        }
+
+        const thread = yield* sessions.createThread({
+          title,
+          kind: "branch",
+        })
+        const current = yield* sessions.current()
+        yield* Ref.update(stateRef, (currentState) =>
+          resetForThread(
+            currentState,
+            {
+              threadId: current.threadId,
+              threadTitle: current.threadTitle,
+              threadCount: current.threadCount,
+            },
+            `Started branch thread "${title}" (${thread.id}).`,
+          ),
+        )
+        return
+      }
+
+      if (command.startsWith("switch ")) {
+        const threadId = command.slice("switch ".length).trim()
+        if (threadId.length === 0) {
+          yield* Queue.offer(queue, {
+            _tag: "System",
+            message: "Usage: /thread switch <thread-id>",
+          })
+          return
+        }
+
+        yield* sessions.switchThread(threadId)
+        const current = yield* sessions.current()
+        yield* Ref.update(stateRef, (currentState) =>
+          resetForThread(
+            currentState,
+            {
+              threadId: current.threadId,
+              threadTitle: current.threadTitle,
+              threadCount: current.threadCount,
+            },
+            `Switched to thread "${current.threadTitle}" (${current.threadId}).`,
+          ),
+        )
+        return
+      }
+
+      yield* Queue.offer(queue, {
+        _tag: "System",
+        message:
+          "Supported thread commands: /thread list, /thread branch <title>, /thread switch <thread-id>",
+      })
+      return
+    }
+
+    if (prompt.startsWith("/handoff ")) {
+      const summary = prompt.slice("/handoff ".length).trim()
+      if (summary.length === 0) {
+        yield* Queue.offer(queue, {
+          _tag: "System",
+          message: "Usage: /handoff <summary>",
+        })
+        return
+      }
+
+      const thread = yield* sessions.createThread({
+        title: "handoff",
+        kind: "handoff",
+        handoffSummary: summary,
+      })
+      const current = yield* sessions.current()
+      yield* Ref.update(stateRef, (currentState) =>
+        resetForThread(
+          currentState,
+          {
+            threadId: current.threadId,
+            threadTitle: current.threadTitle,
+            threadCount: current.threadCount,
+          },
+          `Created handoff thread "${thread.id}" with summary: ${summary}`,
+        ),
+      )
+      return
+    }
     if (state.status === "running") {
       yield* sendSteer(stateRef, queue, prompt)
     } else {
@@ -1029,10 +1201,11 @@ export const run = (options?: TuiOptions) =>
     const input = yield* terminal.readInput
     const sessions = yield* SessionStore
     const previous = yield* sessions.loadSnapshot<TuiState>()
+    const current = yield* sessions.current()
     const stateRef = yield* Ref.make(
       Option.match(previous, {
-        onNone: () => makeState(options),
-        onSome: (snapshot) => resumeState(snapshot, options),
+        onNone: () => withSessionMeta(makeState(options), current),
+        onSome: (snapshot) => withSessionMeta(resumeState(snapshot, options), current),
       }),
     )
     const queue = yield* Queue.unbounded<Message>()

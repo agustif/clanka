@@ -71,7 +71,9 @@ describe("SessionStore", () => {
           })
 
           const threads = yield* sessions.listThreads()
+          const current = yield* sessions.current()
           yield* sessions.switchThread(thread.id)
+          const switched = yield* sessions.current()
 
           const after = yield* sessions.loadSnapshot<{ foo: string }>()
 
@@ -81,6 +83,8 @@ describe("SessionStore", () => {
             after,
             threadId: thread.id,
             threadCount: threads.length,
+            currentThreadTitle: current.threadTitle,
+            switchedThreadId: switched.threadId,
           }
         }).pipe(
           Effect.provide(
@@ -104,6 +108,8 @@ describe("SessionStore", () => {
       expect(index.sessions[0].title).toBe("session test")
       expect(index.threads.some((thread: { id: string }) => thread.id === result.threadId)).toBe(true)
       expect(result.threadCount).toBe(2)
+      expect(result.currentThreadTitle).toBe("handoff thread")
+      expect(result.switchedThreadId).toBe(result.threadId)
 
       const liveSession = await readFile(
         NodePath.join(result.directory, "live-session.jsonl"),

@@ -17,6 +17,8 @@
 - Render auth/login as first-class interruption cards.
 - Move deep trace toward a secondary view or expansion model.
 - Persist sessions continuously and resume from the last saved project session.
+- Expose session/thread state and basic thread operations directly in the TUI.
+- Status: landed for the first slice. Grouped-turn rendering still pending.
 
 ## Phase 3: Operator trust
 
@@ -34,6 +36,17 @@
   Effect-native.
 - Add a deeper component model for feed cards, sidebars, overlays, and
   approvals.
+
+## Phase 5: Threads and handoff
+
+- Add first-class thread navigation in the UI.
+- Add in-session branching and explicit handoff flows.
+- Add branch summaries and handoff summaries using a shared summarization
+  service.
+- Add a tree view over thread and branch structure, informed by Pi and Amp
+  patterns.
+- Status: storage layer and basic TUI commands landed; tree view and handoff
+  review UX still pending.
 
 ## Cross-incumbent standards
 
