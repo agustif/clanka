@@ -15,7 +15,9 @@ import {
   SessionStore,
   type SessionSnapshot,
   type SessionSummary,
+  type ThreadRecord,
 } from "./Session.ts"
+import { aggregateTurns } from "./TurnAggregator.ts"
 
 /**
  * @since 1.0.0
@@ -287,6 +289,91 @@ const resetForThread = (
       body: notice,
     },
   )
+
+const entryKindFromTurnRole = (role: "user" | "agent" | "auth" | "system" | "result"): TuiEntry["kind"] => {
+  switch (role) {
+    case "user":
+      return "prompt"
+    case "agent":
+      return "agent"
+    case "auth":
+      return "auth"
+    case "system":
+      return "system"
+    case "result":
+      return "script-output"
+  }
+}
+
+const renderThreadTree = (
+  threads: ReadonlyArray<ThreadRecord>,
+  activeThreadId: string | null,
+) => {
+  const depthOf = (thread: ThreadRecord) => {
+    let depth = 0
+    let parentId = thread.parentThreadId
+    while (parentId !== undefined) {
+      const parent = threads.find((candidate) => candidate.id === parentId)
+      if (parent === undefined) break
+      depth++
+      parentId = parent.parentThreadId
+    }
+    return depth
+  }
+
+  return threads
+    .map((thread) => {
+      const marker = thread.id === activeThreadId ? "*" : "-"
+      const indent = "  ".repeat(depthOf(thread))
+      return `${marker} ${indent}${thread.kind} ${thread.title} (${thread.id})`
+    })
+    .join("\n")
+}
+
+const loadThreadView = Effect.fn(function* (
+  sessions: SessionStore,
+  threadId: string,
+  notice: string,
+  state: TuiState,
+) {
+  const current = yield* sessions.current()
+  const events = yield* sessions.readEvents(threadId)
+  const turns = aggregateTurns(events)
+  let nextState = {
+    ...state,
+    status: "idle" as const,
+    activeRunId: 0,
+    input: "",
+    entries: [],
+    selectedEntry: 0,
+    activeModel: null,
+    activeProvider: null,
+    currentBlock: null,
+    threadId: current.threadId,
+    threadTitle: current.threadTitle,
+    threadCount: current.threadCount,
+    footer: notice,
+  }
+
+  for (const turn of turns) {
+    nextState = appendEntry(nextState, {
+      runId: turn.runId,
+      kind: entryKindFromTurnRole(turn.role),
+      title: turn.title,
+      body:
+        turn.evidence.length > 0
+          ? `${turn.summary}\n\n${turn.evidence.join("\n\n")}`
+          : turn.summary,
+    })
+  }
+
+  return appendEntry(nextState, {
+    runId: 0,
+    kind: "system",
+    title: "Thread changed",
+    body: notice,
+  })
+})
 
 const withSessionMeta = (
   state: TuiState,
@@ -1077,6 +1164,19 @@ const handleInput = Effect.fn(function* (
         return
       }
 
+      if (command === "tree") {
+        const threads = yield* sessions.listThreads()
+        yield* Ref.update(stateRef, (current) => ({
+          ...current,
+          input: "",
+        }))
+        yield* Queue.offer(queue, {
+          _tag: "System",
+          message: renderThreadTree(threads, state.threadId),
+        })
+        return
+      }
+
       if (command.startsWith("branch ")) {
         const title = command.slice("branch ".length).trim()
         if (title.length === 0) {
@@ -1091,18 +1191,14 @@ const handleInput = Effect.fn(function* (
           title,
           kind: "branch",
         })
-        const current = yield* sessions.current()
-        yield* Ref.update(stateRef, (currentState) =>
-          resetForThread(
-            currentState,
-            {
-              threadId: current.threadId,
-              threadTitle: current.threadTitle,
-              threadCount: current.threadCount,
-            },
-            `Started branch thread "${title}" (${thread.id}).`,
-          ),
+        const currentState = yield* Ref.get(stateRef)
+        const nextState = yield* loadThreadView(
+          sessions,
+          thread.id,
+          `Started branch thread "${title}" (${thread.id}).`,
+          currentState,
         )
+        yield* Ref.set(stateRef, nextState)
         return
       }
 
@@ -1117,25 +1213,21 @@ const handleInput = Effect.fn(function* (
         }
 
         yield* sessions.switchThread(threadId)
-        const current = yield* sessions.current()
-        yield* Ref.update(stateRef, (currentState) =>
-          resetForThread(
-            currentState,
-            {
-              threadId: current.threadId,
-              threadTitle: current.threadTitle,
-              threadCount: current.threadCount,
-            },
-            `Switched to thread "${current.threadTitle}" (${current.threadId}).`,
-          ),
+        const currentState = yield* Ref.get(stateRef)
+        const nextState = yield* loadThreadView(
+          sessions,
+          threadId,
+          `Switched to thread "${threadId}".`,
+          currentState,
         )
+        yield* Ref.set(stateRef, nextState)
         return
       }
 
       yield* Queue.offer(queue, {
         _tag: "System",
         message:
-          "Supported thread commands: /thread list, /thread branch <title>, /thread switch <thread-id>",
+          "Supported thread commands: /thread list, /thread tree, /thread branch <title>, /thread switch <thread-id>",
       })
       return
     }
@@ -1155,18 +1247,14 @@ const handleInput = Effect.fn(function* (
         kind: "handoff",
         handoffSummary: summary,
       })
-      const current = yield* sessions.current()
-      yield* Ref.update(stateRef, (currentState) =>
-        resetForThread(
-          currentState,
-          {
-            threadId: current.threadId,
-            threadTitle: current.threadTitle,
-            threadCount: current.threadCount,
-          },
-          `Created handoff thread "${thread.id}" with summary: ${summary}`,
-        ),
+      const currentState = yield* Ref.get(stateRef)
+      const nextState = yield* loadThreadView(
+        sessions,
+        thread.id,
+        `Created handoff thread "${thread.id}" with summary: ${summary}`,
+        currentState,
       )
+      yield* Ref.set(stateRef, nextState)
       return
     }
     if (state.status === "running") {
